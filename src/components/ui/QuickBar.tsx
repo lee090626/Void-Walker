@@ -14,8 +14,8 @@ const QuickBarContainer = styled.div`
 `;
 
 const QuickSlot = styled.div<{ active: boolean }>`
-  width: 50px;
-  height: 50px;
+  width: 70px;
+  height: 70px;
   background: rgba(0, 0, 0, 0.6);
   border: 2px solid
     ${(props) =>
@@ -58,24 +58,21 @@ const Quantity = styled.div`
   text-shadow: 1px 1px 2px black;
 `;
 
-const PotionIcon = styled.div<{ color: string }>`
-  width: 24px;
-  height: 24px;
-  background: ${(props) => props.color};
-  border-radius: 50% 50% 20% 20%;
-  position: relative;
-
-  &::after {
-    content: '';
-    position: absolute;
-    top: -4px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 8px;
-    height: 4px;
-    background: #8b4513;
-    border-radius: 2px;
-  }
+const ItemIcon = styled.div<{
+  icon?: string;
+  color: string;
+  size?: { x: number; y: number };
+}>`
+  width: ${(props) => (props.size ? `${props.size.x}px` : '44px')};
+  height: ${(props) => (props.size ? `${props.size.y}px` : '44px')};
+  max-width: 100%;
+  max-height: 100%;
+  background: ${(props) => (props.icon ? `url(${props.icon})` : props.color)};
+  background-size: contain;
+  background-position: center;
+  background-repeat: no-repeat;
+  border-radius: 4px;
+  box-sizing: border-box;
 `;
 
 const EmptySlot = styled.div`
@@ -112,7 +109,9 @@ const QuickBar: React.FC<QuickBarProps> = ({
             <KeyBind>{index + 1}</KeyBind>
             {itemId && itemData ? (
               <>
-                <PotionIcon
+                <ItemIcon
+                  icon={itemData.icon}
+                  size={itemData.quickBarSize || itemData.size}
                   color={
                     itemData.id === 'red_potion'
                       ? '#ff4b2b'

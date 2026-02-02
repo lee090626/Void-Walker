@@ -92,6 +92,8 @@ export interface Player extends Entity {
   lastDamageTime: number; // For visual feedback
   inventory: InventoryItem[];
   gold: number;
+  moveSpeedMultiplier: number; // 1.0 = normal, 0.6 = slowed
+  slowEndTime: number; // Timestamp when slow ends
 }
 
 export interface Enemy extends Entity {
@@ -106,12 +108,20 @@ export interface Enemy extends Entity {
   lastAttackTime: number; // timestamp
   hitboxSize: Vector2D; // Added for monster-specific hitbox
   hitboxOffset: Vector2D; // Added for offset positioning
+  synergyActive?: boolean; // For visual and mechanical effects
 }
 
 export interface NPC extends Entity {
   name: string;
-  type: 'Merchant' | 'Quest' | 'Blacksmith' | 'Spaceship';
+  type: 'Merchant' | 'Quest' | 'Blacksmith' | 'Spaceship' | 'Guide';
   shopItems?: string[]; // Item IDs
+  nameOffset?: Vector2D;
+}
+
+export interface ToastMessage {
+  id: string;
+  message: string;
+  duration?: number;
 }
 
 export function calculateDerivedStats(
@@ -123,16 +133,17 @@ export function calculateDerivedStats(
 ) {
   const atk =
     10 +
-    stats.str * stats.str +
+    stats.str * 3 +
+    Math.floor(stats.str * stats.str * 0.1) +
     (equipment.weapon?.atk || 0) +
-    (equipment.weapon?.enhanceLevel || 0) * 3;
+    (equipment.weapon?.enhanceLevel || 0) * 4;
   const def =
     (equipment.armor?.def || 0) +
-    Math.floor((stats.vit - 1) / 2) +
-    (equipment.armor?.enhanceLevel || 0) * 2;
-  const maxHp = 100 + stats.vit * 15 + stats.str * 2;
-  const maxMp = 50 + stats.int * 15;
-  const speed = Math.min(500, 200 + (stats.dex - 1) * 10); // Offset adjusted
+    Math.floor(stats.vit * 0.8) +
+    (equipment.armor?.enhanceLevel || 0) * 3;
+  const maxHp = 100 + stats.vit * 20 + stats.str * 5;
+  const maxMp = 50 + stats.int * 20;
+  const speed = Math.min(500, 200 + (stats.dex - 1) * 12); // Offset adjusted
 
   return { atk, def, maxHp, maxMp, speed };
 }
@@ -153,21 +164,31 @@ export interface GameState {
     | 'MonsterBook'
     | 'Enhance'
     | 'PlanetSelect'
-    | 'Settings';
+    | 'Settings'
+    | 'Dialog';
+  currentDialog: {
+    speaker: string;
+    text: string;
+    action?: string;
+    actionLabel?: string;
+  } | null;
   quickBar: (string | null)[]; // Array of 5 item IDs
   settings: {
     showRange: boolean;
     showHitbox: boolean;
     cooldownVisualMode: number; // 0: None, 1: Radial, 2: HUD, 3: Flash
+    playerStyle: number; // 0: Procedural, 1: Fantasy, 2: Sci-Fi, 3: Assassin, 4: Chibi, 5: Urban
+    showCoordinates: boolean;
   };
+  toasts: ToastMessage[];
 }
 
 export const INITIAL_STATE: GameState = {
   player: {
     id: 'player',
-    position: { x: 400, y: 300 },
+    position: { x: 650, y: 450 },
     velocity: { x: 0, y: 0 },
-    size: { x: 32, y: 32 },
+    size: { x: 128, y: 128 },
     level: 1,
     exp: 0,
     maxExp: 100,
@@ -206,6 +227,8 @@ export const INITIAL_STATE: GameState = {
     lastDamageTime: 0,
     inventory: [{ itemId: 'basic_sword', quantity: 1 }],
     gold: 0,
+    moveSpeedMultiplier: 1,
+    slowEndTime: 0,
   },
 
   enemies: [],
@@ -215,10 +238,14 @@ export const INITIAL_STATE: GameState = {
   bestiary: {},
   lastUpdate: Date.now(),
   activeUI: 'None',
+  currentDialog: null,
   quickBar: [null, null, null, null, null],
   settings: {
     showRange: true,
     showHitbox: true,
     cooldownVisualMode: 1, // Default to Radial
+    playerStyle: 4, // Fixed to Chibi Style
+    showCoordinates: true,
   },
+  toasts: [],
 };

@@ -20,8 +20,8 @@ const Overlay = styled.div`
 
 const Window = styled.div`
   background: var(--panel-bg);
-  width: 500px;
-  height: 650px;
+  width: 900px;
+  height: 750px;
   border-radius: 12px;
   border: 1px solid var(--primary-color);
   box-shadow: 0 0 30px rgba(0, 0, 0, 0.8);
@@ -68,9 +68,9 @@ const Tab = styled.button<{ active: boolean }>`
 
 const ItemGrid = styled.div`
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   grid-auto-rows: min-content;
-  gap: 10px;
+  gap: 15px;
   overflow-y: auto;
   padding: 10px;
   flex-grow: 1;
@@ -98,11 +98,21 @@ const ItemSlot = styled.div<{ active?: boolean }>`
   }
 `;
 
-const ItemIcon = styled.div<{ color: string }>`
-  width: 24px;
-  height: 24px;
-  background: ${(props) => props.color};
-  border-radius: 3px;
+const ItemIcon = styled.div<{
+  icon?: string;
+  color: string;
+  size?: { x: number; y: number };
+}>`
+  width: ${(props) => (props.size ? `${props.size.x}px` : '32px')};
+  height: ${(props) => (props.size ? `${props.size.y}px` : '32px')};
+  max-width: 100%;
+  max-height: 100%;
+  background: ${(props) => (props.icon ? `url(${props.icon})` : props.color)};
+  background-size: contain;
+  background-position: center;
+  background-repeat: no-repeat;
+  border-radius: 4px;
+  box-sizing: border-box;
 `;
 
 const QuantityBadge = styled.div`
@@ -259,6 +269,8 @@ const Inventory: React.FC<InventoryProps> = ({
             >
               {item && (
                 <ItemIcon
+                  icon={item.icon}
+                  size={item.inventorySize || item.size}
                   color={
                     item.type === 'Weapon'
                       ? '#ffd700'

@@ -9,7 +9,9 @@ import QuickBar from './ui/QuickBar';
 import { ShopWindow } from './ui/ShopWindow';
 import { EnhanceWindow } from './ui/EnhanceWindow';
 import PlanetSelectWindow from './ui/PlanetSelectWindow';
+import DialogWindow from './ui/DialogWindow';
 import SettingsWindow from './ui/SettingsWindow';
+import Toast from './ui/Toast';
 import { WORLD_DATABASE } from '../types/world';
 
 const CanvasContainer = styled.div`
@@ -22,17 +24,43 @@ const CanvasContainer = styled.div`
 
 const MapTitle = styled.div`
   position: absolute;
-  top: 80px;
+  top: 30px;
   left: 50%;
   transform: translateX(-50%);
-  color: #ffd700;
-  font-family: 'Outfit', sans-serif;
-  font-size: 1.2rem;
-  letter-spacing: 4px;
-  text-transform: uppercase;
-  text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
   pointer-events: none;
-  opacity: 0.8;
+  z-index: 10;
+`;
+
+const RegionName = styled.h1`
+  margin: 0;
+  color: var(--primary-color);
+  font-family: 'Outfit', sans-serif;
+  font-size: 1.8rem;
+  letter-spacing: 6px;
+  text-transform: uppercase;
+  text-shadow:
+    0 0 10px rgba(255, 215, 0, 0.5),
+    0 0 20px rgba(255, 215, 0, 0.2);
+  font-weight: 800;
+  background: linear-gradient(180deg, #fff 0%, var(--primary-color) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+`;
+
+const CoordLabel = styled.div`
+  color: rgba(255, 255, 255, 0.6);
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.8rem;
+  letter-spacing: 2px;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 2px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 215, 0, 0.2);
 `;
 
 const GameView: React.FC = () => {
@@ -62,11 +90,16 @@ const GameView: React.FC = () => {
     handleChangeMap,
     handlePlayerPosition,
     toggleSetting,
+    handleOpenDialog,
+    handleCloseDialog,
+    saveGame,
+    loadGame,
+    resetGame,
   } = useGameState();
 
   const keysRef = useRef<Set<string>>(new Set());
   const requestRef = useRef<number>(0);
-  const previousTimeRef = useRef<number>(0);
+  const previousTimeRef = useRef<number>(0); // Added this line to define previousTimeRef
 
   // Initialize Phaser
   useEffect(() => {
@@ -109,12 +142,15 @@ const GameView: React.FC = () => {
   useEffect(() => {
     if (!phaserGame) return;
     phaserGame.events.on('changeMap', handleChangeMap);
-    phaserGame.events.on('openSpaceshipUI', () => setUI('PlanetSelect'));
+    phaserGame.events.on('npcClicked', (npc: any) => {
+      console.log('GameView: npcClicked received', npc);
+      handleOpenDialog(npc);
+    });
     return () => {
       phaserGame.events.off('changeMap', handleChangeMap);
-      phaserGame.events.off('openSpaceshipUI');
+      phaserGame.events.off('npcClicked');
     };
-  }, [phaserGame, handleChangeMap, setUI]);
+  }, [phaserGame, handleChangeMap, setUI, handleOpenDialog]);
 
   // Sync player position from Phaser -> React state
   useEffect(() => {
@@ -207,7 +243,15 @@ const GameView: React.FC = () => {
   return (
     <CanvasContainer>
       <div ref={gameContainerRef} style={{ width: '100%', height: '100%' }} />
-      <MapTitle>{WORLD_DATABASE[state.currentMapId].name}</MapTitle>
+      <MapTitle>
+        <RegionName>{WORLD_DATABASE[state.currentMapId].name}</RegionName>
+        {state.settings.showCoordinates && (
+          <CoordLabel>
+            X: {Math.round(state.player.position.x)} Y:{' '}
+            {Math.round(state.player.position.y)}
+          </CoordLabel>
+        )}
+      </MapTitle>
 
       <HUD
         player={state.player}
@@ -272,13 +316,25 @@ const GameView: React.FC = () => {
           onClose={closeUI}
         />
       )}
+      {state.activeUI === 'Dialog' && state.currentDialog && (
+        <DialogWindow
+          dialog={state.currentDialog}
+          onClose={handleCloseDialog}
+          onAction={(action) => setUI(action as any)}
+        />
+      )}
       {state.activeUI === 'Settings' && (
         <SettingsWindow
           settings={state.settings}
           onToggle={toggleSetting}
           onClose={closeUI}
+          onSave={saveGame}
+          onLoad={loadGame}
+          onReset={resetGame}
         />
       )}
+
+      <Toast toasts={state.toasts} />
     </CanvasContainer>
   );
 };

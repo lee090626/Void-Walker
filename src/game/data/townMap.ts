@@ -11,6 +11,13 @@ const FLOOR = 4;
 const TREE = 5;
 const FLOWER = 6;
 
+// Deterministic Random Generator for consistent map generation
+let mapSeed = 42;
+const seededRandom = () => {
+  const x = Math.sin(mapSeed++) * 10000;
+  return x - Math.floor(x);
+};
+
 // Helper to fill area
 const fill = (
   map: number[][],
@@ -45,6 +52,7 @@ const drawRect = (
 };
 
 const createTownMap = () => {
+  mapSeed = 42;
   // Initialize with Grass
   const map: number[][] = Array(MAP_HEIGHT)
     .fill(0)
@@ -104,9 +112,9 @@ const createTownMap = () => {
         ];
         // Inject initial noise
         if (current === GRASS && neighbors.includes(PATH)) {
-          if (Math.random() < 0.4) map[y][x] = PATH;
+          if (seededRandom() < 0.4) map[y][x] = PATH;
         } else if (current === PATH && neighbors.includes(GRASS)) {
-          if (Math.random() < 0.4) map[y][x] = GRASS;
+          if (seededRandom() < 0.4) map[y][x] = GRASS;
         }
       }
     }

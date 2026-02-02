@@ -77,6 +77,35 @@ const ToggleButton = styled.button<{ active: boolean }>`
   }
 `;
 
+const ActionButton = styled.button<{ variant?: 'danger' | 'success' }>`
+  width: 100%;
+  padding: 12px;
+  margin-top: 10px;
+  border-radius: 8px;
+  border: 1px solid
+    ${(props) =>
+      props.variant === 'danger'
+        ? '#ff4444'
+        : props.variant === 'success'
+          ? '#44ff44'
+          : 'var(--primary-color)'};
+  background: rgba(0, 0, 0, 0.3);
+  color: white;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s;
+  letter-spacing: 1px;
+
+  &:hover {
+    background: ${(props) =>
+      props.variant === 'danger'
+        ? 'rgba(255, 68, 68, 0.2)'
+        : props.variant === 'success'
+          ? 'rgba(68, 255, 68, 0.2)'
+          : 'rgba(255, 215, 0, 0.2)'};
+  }
+`;
+
 import type { GameState } from '../../types/game';
 
 interface SettingsWindowProps {
@@ -84,15 +113,22 @@ interface SettingsWindowProps {
     showRange: boolean;
     showHitbox: boolean;
     cooldownVisualMode: number;
+    showCoordinates: boolean;
   };
   onToggle: (key: keyof GameState['settings']) => void;
   onClose: () => void;
+  onSave: () => void;
+  onLoad: () => void;
+  onReset: () => void;
 }
 
 const SettingsWindow: React.FC<SettingsWindowProps> = ({
   settings,
   onToggle,
   onClose,
+  onSave,
+  onLoad,
+  onReset,
 }) => {
   const getModeLabel = (mode: number) => {
     switch (mode) {
@@ -149,6 +185,37 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
             {getModeLabel(settings.cooldownVisualMode)}
           </ToggleButton>
         </SettingRow>
+
+        <SettingRow>
+          <SettingLabel>좌표 표시</SettingLabel>
+          <ToggleButton
+            active={settings.showCoordinates}
+            onClick={() => onToggle('showCoordinates')}
+          >
+            {settings.showCoordinates ? 'ON' : 'OFF'}
+          </ToggleButton>
+        </SettingRow>
+
+        <div
+          style={{
+            marginTop: '30px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+          }}
+        >
+          <ActionButton variant="success" onClick={onSave}>
+            데이터 저장하기
+          </ActionButton>
+          <ActionButton onClick={onLoad}>데이터 불러오기</ActionButton>
+          <ActionButton
+            variant="danger"
+            onClick={onReset}
+            style={{ marginTop: '20px' }}
+          >
+            데이터 초기화
+          </ActionButton>
+        </div>
 
         <div
           style={{

@@ -20,8 +20,8 @@ const Overlay = styled.div`
 `;
 
 const Window = styled.div`
-  width: 600px;
-  height: 500px;
+  width: 1000px;
+  height: 750px;
   background: #1a1a1a;
   border: 2px solid #444;
   border-radius: 12px;
@@ -74,11 +74,11 @@ const Tab = styled.button<{ active: boolean }>`
 
 const Content = styled.div`
   flex: 1;
-  padding: 20px;
+  padding: 30px;
   overflow-y: auto;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: 15px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
 `;
 
 const ItemCard = styled.div`
@@ -100,15 +100,25 @@ const ItemInfo = styled.div`
   gap: 10px;
 `;
 
-const ItemIcon = styled.div<{ color?: string }>`
-  width: 40px;
-  height: 40px;
-  background: ${(props) => props.color || '#444'};
-  border-radius: 4px;
+const ItemIcon = styled.div<{
+  color?: string;
+  icon?: string;
+  size?: { x: number; y: number };
+}>`
+  width: ${(props) => (props.size ? `${props.size.x}px` : '80px')};
+  height: ${(props) => (props.size ? `${props.size.y}px` : '80px')};
+  max-width: 100%;
+  max-height: 100%;
+  background: ${(props) =>
+    props.icon ? `url(${props.icon})` : props.color || '#444'};
+  background-size: contain;
+  background-position: center;
+  background-repeat: no-repeat;
+  border-radius: 6px;
   display: flex;
   justify-content: center;
   align-items: center;
-  font-size: 20px;
+  box-sizing: border-box;
 `;
 
 const ItemDetail = styled.div`
@@ -200,7 +210,11 @@ export const ShopWindow: React.FC<ShopWindowProps> = ({
                 return (
                   <ItemCard key={itemId}>
                     <ItemInfo>
-                      <ItemIcon color="#334455">⚔️</ItemIcon>
+                      <ItemIcon
+                        icon={item.icon}
+                        size={item.inventorySize || item.size}
+                        color="#334455"
+                      />
                       <ItemDetail>
                         <ItemName>{item.name}</ItemName>
                         <ItemPrice>{item.price} Gold</ItemPrice>
@@ -223,7 +237,11 @@ export const ShopWindow: React.FC<ShopWindowProps> = ({
                 return (
                   <ItemCard key={`${invItem.itemId}-${index}`}>
                     <ItemInfo>
-                      <ItemIcon color="#443333">📦</ItemIcon>
+                      <ItemIcon
+                        icon={item.icon}
+                        size={item.inventorySize || item.size}
+                        color="#443333"
+                      />
                       <ItemDetail>
                         <ItemName>
                           {item.name} (x{invItem.quantity})

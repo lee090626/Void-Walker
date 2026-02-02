@@ -9,7 +9,7 @@ export const WORLD_DATABASE: Record<string, MapData> = {
     portals: [
       {
         id: 't-to-m',
-        x: 1280 - 60,
+        x: 1190,
         y: 960 / 2 - 50,
         width: 40,
         height: 100,
@@ -31,10 +31,11 @@ export const WORLD_DATABASE: Record<string, MapData> = {
     npcs: [
       {
         id: 'merchant_town',
-        name: '상점 주인',
+        name: '상점 주인 벤',
         type: 'Merchant',
-        position: { x: 200, y: 300 },
-        size: { x: 40, y: 60 },
+        position: { x: 250, y: 300 },
+        size: { x: 220, y: 280 },
+        nameOffset: { x: -5, y: -80 },
         velocity: { x: 0, y: 0 },
         speed: 0,
         shopItems: [
@@ -47,10 +48,11 @@ export const WORLD_DATABASE: Record<string, MapData> = {
       },
       {
         id: 'blacksmith_town',
-        name: '대장장이',
+        name: '대장장이 오르손',
         type: 'Blacksmith',
         position: { x: 400, y: 300 },
-        size: { x: 50, y: 70 },
+        size: { x: 200, y: 280 },
+        nameOffset: { x: 5, y: -80 },
         velocity: { x: 0, y: 0 },
         speed: 0,
       },
@@ -161,26 +163,26 @@ export const WORLD_DATABASE: Record<string, MapData> = {
         targetY: 960 / 2,
       },
       {
-        id: 'fc-to-ba',
+        id: 'fc-to-ic',
         x: 1280 / 2 - 50,
         y: 20,
         width: 100,
         height: 40,
-        targetMapId: 'burning_abyss',
+        targetMapId: 'ice_cave',
         targetX: 1280 / 2,
         targetY: 960 - 100,
       },
     ],
     npcs: [],
   },
-  burning_abyss: {
-    id: 'burning_abyss',
-    name: '타오르는 심연',
+  ice_cave: {
+    id: 'ice_cave',
+    name: '얼음 동굴',
     bgColor: '#3e2723',
     canSpawnMonsters: true,
     portals: [
       {
-        id: 'ba-to-fc',
+        id: 'ic-to-fc',
         x: 1280 / 2 - 50,
         y: 960 - 60,
         width: 100,
@@ -222,10 +224,11 @@ export const WORLD_DATABASE: Record<string, MapData> = {
       },
       {
         id: 'station_guide',
-        name: '정거장 안내원',
-        type: 'Quest',
+        name: '정거장 안내원 Ai',
+        type: 'Guide',
         position: { x: 800, y: 480 },
-        size: { x: 40, y: 40 },
+        size: { x: 60, y: 100 },
+        nameOffset: { x: 0, y: -80 },
         velocity: { x: 0, y: 0 },
         speed: 0,
       },

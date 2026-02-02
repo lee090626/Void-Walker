@@ -39,6 +39,9 @@ export const useGameState = () => {
   const handlePlayerPosition = useCallback(
     (payload: { x: number; y: number; direction?: number }) => {
       setState((prev) => {
+        // Prevent updates if Dialog is open to avoid state race conditions or unwanted movement
+        if (prev.activeUI === 'Dialog') return prev;
+
         const { player } = prev;
         const nextPosX = payload.x;
         const nextPosY = payload.y;
@@ -197,7 +200,12 @@ export const useGameState = () => {
       if (enemiesInRange.length > 0) {
         const target = enemiesInRange[0].enemy;
         const template = MONSTER_DATABASE[target.type];
-        const enemyDef = template?.def || 0;
+        let enemyDef = template?.def || 0;
+
+        // Apply Synergy Defense Boost (Yeti)
+        if (target.synergyActive && template?.auraType === 'defense_boost') {
+          enemyDef *= 1.5; // 50% defense increase as planned
+        }
 
         // 지수형 데미지 공식
         let baseDamage = Math.max(0, Math.pow(player.atk, 1.5) / 5 - enemyDef);
@@ -306,37 +314,63 @@ export const useGameState = () => {
       let monsterId = 'slime';
       if (prev.currentMapId === 'forest') monsterId = 'goblin';
       if (prev.currentMapId === 'cave') monsterId = 'bat';
-      if (prev.currentMapId === 'frozen_cliff') monsterId = 'ice_spirit';
       if (prev.currentMapId === 'burning_abyss') monsterId = 'burning_slime';
 
-      const template = MONSTER_DATABASE[monsterId];
-      if (!template) return prev;
+      const templatesToSpawn: string[] = [];
 
-      const newEnemy: Enemy = {
-        id: `enemy-${Date.now()}`,
-        type: template.id,
-        position: {
-          x: Math.random() * (MAP_WIDTH * TILE_SIZE - 100) + 50,
-          y: Math.random() * (MAP_HEIGHT * TILE_SIZE - 100) + 50,
-        },
-        velocity: { x: 0, y: 0 },
-        size: { ...template.size },
-        speed: template.speed,
-        hp: template.maxHp,
-        maxHp: template.maxHp,
-        level: 1,
-        expValue: template.expValue,
-        atk: template.atk,
-        attackRange: template.attackRange,
-        attackCooldown: template.attackCooldown,
-        lastAttackTime: 0,
-        hitboxSize: { ...template.hitboxSize },
-        hitboxOffset: { ...template.hitboxOffset },
+      // Special Duo Spawning for Ice Maps
+      if (
+        prev.currentMapId === 'frozen_cliff' ||
+        prev.currentMapId === 'ice_cave'
+      ) {
+        if (Math.random() < 0.5) {
+          templatesToSpawn.push('yeti', 'ice_spirit'); // 50% chance for a synergy duo
+        } else {
+          templatesToSpawn.push(Math.random() < 0.5 ? 'yeti' : 'ice_spirit');
+        }
+      } else {
+        templatesToSpawn.push(monsterId);
+      }
+
+      const newEnemies: Enemy[] = [];
+      const basePos = {
+        x: Math.random() * (MAP_WIDTH * TILE_SIZE - 200) + 100,
+        y: Math.random() * (MAP_HEIGHT * TILE_SIZE - 200) + 100,
       };
+
+      templatesToSpawn.forEach((tid, index) => {
+        const template = MONSTER_DATABASE[tid];
+        if (!template) return;
+
+        // Offset positions slightly for duos
+        const pos =
+          templatesToSpawn.length > 1
+            ? { x: basePos.x + index * 60 - 30, y: basePos.y + index * 60 - 30 }
+            : basePos;
+
+        newEnemies.push({
+          id: `enemy-${Date.now()}-${index}`,
+          type: template.id,
+          position: pos,
+          velocity: { x: 0, y: 0 },
+          size: { ...template.size },
+          speed: template.speed,
+          hp: template.maxHp,
+          maxHp: template.maxHp,
+          level: 1,
+          expValue: template.expValue,
+          atk: template.atk,
+          attackRange: template.attackRange,
+          attackCooldown: template.attackCooldown,
+          lastAttackTime: 0,
+          hitboxSize: { ...template.hitboxSize! }, // Use defaults from DB
+          hitboxOffset: { ...template.hitboxOffset! },
+        });
+      });
 
       return {
         ...prev,
-        enemies: [...prev.enemies, newEnemy],
+        enemies: [...prev.enemies, ...newEnemies],
       };
     });
   }, []);
@@ -346,10 +380,40 @@ export const useGameState = () => {
       const { player, enemies } = prev;
       let newPlayerHp = player.hp;
       let newLastDamageTime = player.lastDamageTime;
+      let newMoveSpeedMultiplier = player.moveSpeedMultiplier;
+      let newSlowEndTime = player.slowEndTime;
       const now = Date.now();
       const newDamageNumbers = [...prev.damageNumbers];
 
+      // Restore player speed if slow expired
+      if (newMoveSpeedMultiplier < 1 && now > newSlowEndTime) {
+        newMoveSpeedMultiplier = 1;
+      }
+
+      // 1. Calculate Synergy Status first
+      const synergyMap = new Map<string, boolean>();
+      enemies.forEach((e1) => {
+        const t1 = MONSTER_DATABASE[e1.type];
+        if (!t1?.synergyTag) return;
+
+        const hasPartner = enemies.some((e2) => {
+          if (e1.id === e2.id) return false;
+          const t2 = MONSTER_DATABASE[e2.type];
+          if (t1.synergyTag !== t2?.synergyTag) return false;
+
+          const d = Math.sqrt(
+            (e1.position.x - e2.position.x) ** 2 +
+              (e1.position.y - e2.position.y) ** 2,
+          );
+          return d < 200; // Synergy range
+        });
+        synergyMap.set(e1.id, hasPartner);
+      });
+
       const updatedEnemies = enemies.map((enemy) => {
+        const template = MONSTER_DATABASE[enemy.type];
+        const isSynergyActive = synergyMap.get(enemy.id) || false;
+
         const dx = player.position.x - enemy.position.x;
         const dy = player.position.y - enemy.position.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
@@ -373,6 +437,12 @@ export const useGameState = () => {
 
           newPlayerHp -= damage;
 
+          // Apply Debuff (Slow)
+          if (template?.debuffType === 'slow') {
+            newMoveSpeedMultiplier = 0.6;
+            newSlowEndTime = now + 2000; // 2 seconds slow
+          }
+
           // Add damage number for player hit
           newDamageNumbers.push({
             id: `dmg-p-${Date.now()}-${Math.random()}`,
@@ -392,6 +462,7 @@ export const useGameState = () => {
 
         return {
           ...enemy,
+          synergyActive: isSynergyActive,
           position: {
             x: enemy.position.x + vx * deltaTime,
             y: enemy.position.y + vy * deltaTime,
@@ -411,6 +482,8 @@ export const useGameState = () => {
             hp: player.maxHp,
             position: { x: 400, y: 300 },
             lastDamageTime: 0,
+            moveSpeedMultiplier: 1,
+            slowEndTime: 0,
           },
         };
       }
@@ -421,6 +494,8 @@ export const useGameState = () => {
           ...player,
           hp: newPlayerHp,
           lastDamageTime: newLastDamageTime,
+          moveSpeedMultiplier: newMoveSpeedMultiplier,
+          slowEndTime: newSlowEndTime,
         },
         enemies: updatedEnemies,
         damageNumbers: newDamageNumbers.filter(
@@ -841,30 +916,66 @@ export const useGameState = () => {
     });
   }, []);
 
-  const handleInteraction = useCallback(() => {
-    setState((prev) => {
-      const currentMap = WORLD_DATABASE[prev.currentMapId];
-      if (!currentMap) return prev;
+  // Moved up to be accessible by handleInteraction
+  const handleOpenDialog = useCallback((npc: any) => {
+    console.log('useGameState: Interact with', npc.name, npc.type);
 
-      const nearestNPC = currentMap.npcs.find((npc) => {
-        const dx = npc.position.x - prev.player.position.x;
-        const dy = npc.position.y - prev.player.position.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        return dist < 60;
-      });
+    let text = '......';
+    let action = undefined;
+    let actionLabel = undefined;
 
-      if (nearestNPC) {
-        if (nearestNPC.type === 'Merchant')
-          return { ...prev, activeUI: 'Shop' };
-        if (nearestNPC.type === 'Blacksmith')
-          return { ...prev, activeUI: 'Enhance' };
-        if (nearestNPC.type === 'Spaceship')
-          return { ...prev, activeUI: 'PlanetSelect' };
-      }
+    if (npc.type === 'Merchant') {
+      text = '어서오세요! 좋은 물건들이 많답니다.';
+      action = 'Shop';
+      actionLabel = '상점 열기';
+    } else if (npc.type === 'Blacksmith') {
+      text = '무기 강화가 필요하신가? 단단히 두들겨주지!';
+      action = 'Enhance';
+      actionLabel = '강화하기';
+    } else if (npc.type === 'Guide') {
+      text = '반갑습니다, 탐험가님. 별무리 정거장에 오신 것을 환영합니다.';
+    } else if (npc.type === 'Spaceship') {
+      text = '시스템 가동. 목적지를 설정하십시오.';
+      action = 'PlanetSelect';
+      actionLabel = '출항하기';
+    }
 
-      return prev;
-    });
+    setState((prev) => ({
+      ...prev,
+      activeUI: 'Dialog',
+      currentDialog: {
+        speaker: npc.name,
+        text,
+        action,
+        actionLabel,
+      },
+    }));
   }, []);
+
+  const handleCloseDialog = useCallback(() => {
+    setState((prev) => ({
+      ...prev,
+      activeUI: 'None',
+      currentDialog: null,
+    }));
+  }, []);
+
+  const handleInteraction = useCallback(() => {
+    const currentState = stateRef.current;
+    const currentMap = WORLD_DATABASE[currentState.currentMapId];
+    if (!currentMap) return;
+
+    const nearestNPC = currentMap.npcs.find((npc) => {
+      const dx = npc.position.x - currentState.player.position.x;
+      const dy = npc.position.y - currentState.player.position.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      return dist < 100;
+    });
+
+    if (nearestNPC) {
+      handleOpenDialog(nearestNPC);
+    }
+  }, [handleOpenDialog]);
 
   const toggleSetting = useCallback((key: keyof GameState['settings']) => {
     setState((prev) => {
@@ -885,6 +996,113 @@ export const useGameState = () => {
         },
       };
     });
+  }, []);
+
+  const addToast = useCallback((message: string, duration: number = 3000) => {
+    const id = `toast-${Date.now()}-${Math.random()}`;
+    setState((prev) => ({
+      ...prev,
+      toasts: [...prev.toasts, { id, message, duration }],
+    }));
+
+    setTimeout(() => {
+      setState((prev) => ({
+        ...prev,
+        toasts: prev.toasts.filter((t) => t.id !== id),
+      }));
+    }, duration);
+  }, []);
+
+  const saveGame = useCallback(
+    (isAutosave = false) => {
+      const currentState = stateRef.current;
+
+      // Extract only persistent data
+      const persistentState = {
+        player: {
+          ...currentState.player,
+        },
+        bestiary: currentState.bestiary,
+        settings: currentState.settings,
+        quickBar: currentState.quickBar,
+        currentMapId: 'town', // Always start at town
+      };
+
+      // Remove non-persistent player attributes (position)
+      const { position, ...playerWithoutPosition } = persistentState.player;
+      persistentState.player = playerWithoutPosition as any;
+
+      try {
+        localStorage.setItem(
+          'void_walker_save',
+          JSON.stringify(persistentState),
+        );
+        console.log(
+          isAutosave ? 'Autosave completed' : 'Manual save completed',
+        );
+
+        if (isAutosave) {
+          addToast('게임이 자동 저장되었습니다.');
+        } else {
+          addToast('게임이 저장되었습니다.');
+        }
+      } catch (error) {
+        console.error('Failed to save game:', error);
+        addToast('파일 저장 실패!');
+      }
+    },
+    [addToast],
+  );
+
+  const loadGame = useCallback((silent = false) => {
+    const saved = localStorage.getItem('void_walker_save');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        // 휘발성 데이터 및 위치 초기화
+        parsed.enemies = [];
+        parsed.droppedItems = [];
+        parsed.damageNumbers = [];
+        parsed.activeUI = 'None';
+        parsed.currentDialog = null;
+        parsed.lastUpdate = Date.now();
+        parsed.toasts = [];
+
+        // 플레이어 위치를 초기 위치로 설정
+        parsed.player.position = { ...INITIAL_STATE.player.position };
+        parsed.currentMapId = INITIAL_STATE.currentMapId;
+
+        setState(parsed);
+        if (!silent) alert('게임을 불러왔습니다.');
+      } catch (e) {
+        console.error('Failed to load game', e);
+        if (!silent) alert('저장된 데이터를 불러오는 데 실패했습니다.');
+      }
+    } else {
+      if (!silent) alert('저장된 데이터가 없습니다.');
+    }
+  }, []);
+
+  useEffect(() => {
+    // 앱 시작 시 자동 불러오기
+    loadGame(true);
+  }, [loadGame]);
+
+  useEffect(() => {
+    // 30초마다 자동 저장
+    const saveInterval = setInterval(() => {
+      saveGame(true);
+    }, 30000);
+
+    return () => clearInterval(saveInterval);
+  }, [saveGame]);
+
+  const resetGame = useCallback(() => {
+    if (window.confirm('정말로 모든 데이터를 초기화하시겠습니까?')) {
+      localStorage.removeItem('void_walker_save');
+      setState(INITIAL_STATE);
+      alert('데이터가 초기화되었습니다.');
+    }
   }, []);
 
   return {
@@ -910,5 +1128,11 @@ export const useGameState = () => {
     handleChangeMap,
     handlePlayerPosition,
     toggleSetting,
+    handleOpenDialog,
+    handleCloseDialog,
+    saveGame,
+    loadGame,
+    resetGame,
+    addToast,
   };
 };

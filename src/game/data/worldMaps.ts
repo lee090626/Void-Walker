@@ -10,6 +10,17 @@ const FLOWER = 6;
 const DEEP_SPACE = 7;
 const NEBULA = 8;
 const STAR_CLUSTER = 9;
+const ICE_FLOOR = 10;
+const ICE_WALL = 11;
+const SNOW = 12;
+const FROZEN_TREE = 13;
+
+// Seeded random for deterministic map generation across sessions/loads
+let mapSeed = 42;
+const seededRandom = () => {
+  const x = Math.sin(mapSeed++) * 10000;
+  return x - Math.floor(x);
+};
 
 const makeEmpty = (tile: number) =>
   Array(MAP_HEIGHT)
@@ -35,13 +46,14 @@ const fill = (
 
 const scatter = (map: number[][], tile: number, count: number) => {
   for (let i = 0; i < count; i++) {
-    const x = Math.floor(Math.random() * MAP_WIDTH);
-    const y = Math.floor(Math.random() * MAP_HEIGHT);
+    const x = Math.floor(seededRandom() * MAP_WIDTH);
+    const y = Math.floor(seededRandom() * MAP_HEIGHT);
     map[y][x] = tile;
   }
 };
 
 const createStarStationMap = () => {
+  mapSeed = 101; // Specific seed for Star Station
   const map = makeEmpty(DEEP_SPACE); // Use Deep Space as base
 
   // 1. Dynamic Galaxy Background (Nebulae & Stars)
@@ -51,12 +63,12 @@ const createStarStationMap = () => {
 
       // Vertical gradient starfield (Dense at top)
       const gradient = Math.max(0, 0.2 - (i / MAP_HEIGHT) * 0.15);
-      if (Math.random() < gradient) map[i][j] = STAR_CLUSTER;
+      if (seededRandom() < gradient) map[i][j] = STAR_CLUSTER;
 
       // Nebula patches (Clusters)
       const noise = Math.sin(j * 0.15) * Math.cos(i * 0.15);
       // Use simplex-like noise approximation for organic cloud shapes
-      if (noise > 0.7 || (noise > 0.5 && Math.random() < 0.5)) {
+      if (noise > 0.7 || (noise > 0.5 && seededRandom() < 0.5)) {
         map[i][j] = NEBULA;
       }
     }
@@ -116,6 +128,7 @@ const createStarStationMap = () => {
 };
 
 const createMeadowMap = () => {
+  mapSeed = 202; // Specific seed for Meadow
   const map = makeEmpty(GRASS);
   // light paths
   fill(map, 0, 28, MAP_WIDTH, 4, PATH);
@@ -129,6 +142,7 @@ const createMeadowMap = () => {
 };
 
 const createForestMap = () => {
+  mapSeed = 303; // Specific seed
   const map = makeEmpty(GRASS);
   // denser trees
   scatter(map, TREE, 220);
@@ -154,6 +168,7 @@ const createCaveMap = () => {
 };
 
 const createLunaMap = () => {
+  mapSeed = 404;
   const map = makeEmpty(WALL); // Space void
   // Lunar surface (Floor but with craters using Wall/Water)
   fill(map, 0, 0, MAP_WIDTH, MAP_HEIGHT, FLOOR);
@@ -163,6 +178,7 @@ const createLunaMap = () => {
 };
 
 const createAetheriaMap = () => {
+  mapSeed = 505;
   const map = makeEmpty(WATER); // Use water as "sky/cloud base"
   // Floating islands
   fill(map, 10, 10, 20, 20, GRASS);
@@ -174,6 +190,7 @@ const createAetheriaMap = () => {
 };
 
 const createIgnisMap = () => {
+  mapSeed = 606;
   const map = makeEmpty(WALL); // Hardened lava
   // Lava flows
   fill(map, 0, 20, MAP_WIDTH, 10, WATER); // Lava river
@@ -186,6 +203,7 @@ const createIgnisMap = () => {
 };
 
 const createXylosMap = () => {
+  mapSeed = 707;
   const map = makeEmpty(GRASS); // Mossy floor
   // Toxic pools
   scatter(map, WATER, 50); // Small pools
@@ -193,6 +211,50 @@ const createXylosMap = () => {
   // Overgrown trees
   scatter(map, TREE, 300);
   scatter(map, FLOWER, 100);
+  return map;
+};
+
+const createFrozenCliffMap = () => {
+  mapSeed = 808;
+  const map = makeEmpty(SNOW);
+
+  // 1. Central Pass (Ice Floor)
+  fill(map, 0, 28, MAP_WIDTH, 4, ICE_FLOOR);
+  fill(map, 38, 0, 4, MAP_HEIGHT, ICE_FLOOR);
+
+  // 2. Cliff Edges (Ice Wall)
+  for (let i = 0; i < MAP_HEIGHT; i++) {
+    for (let j = 0; j < MAP_WIDTH; j++) {
+      if (j < 10 || j > MAP_WIDTH - 10) {
+        if (seededRandom() < 0.7) map[i][j] = ICE_WALL;
+      }
+    }
+  }
+
+  // 3. Decorations
+  scatter(map, FROZEN_TREE, 80);
+  scatter(map, ICE_WALL, 40); // Scattered boulders of ice
+
+  return map;
+};
+
+const createIceCaveMap = () => {
+  mapSeed = 909;
+  const map = makeEmpty(ICE_WALL);
+
+  // 1. Carve main cavern
+  fill(map, 10, 10, MAP_WIDTH - 20, MAP_HEIGHT - 20, ICE_FLOOR);
+
+  // 2. Add snow patches
+  for (let i = 0; i < 6; i++) {
+    const rx = Math.floor(seededRandom() * (MAP_WIDTH - 10)) + 5;
+    const ry = Math.floor(seededRandom() * (MAP_HEIGHT - 10)) + 5;
+    fill(map, rx, ry, 6, 6, SNOW);
+  }
+
+  // 3. Frozen Lake in center
+  fill(map, MAP_WIDTH / 2 - 8, MAP_HEIGHT / 2 - 5, 16, 10, WATER);
+
   return map;
 };
 
@@ -216,6 +278,10 @@ export const getMapTileData = (mapId: string): number[][] => {
       return createIgnisMap();
     case 'xylos':
       return createXylosMap();
+    case 'frozen_cliff':
+      return createFrozenCliffMap();
+    case 'ice_cave':
+      return createIceCaveMap();
     default:
       return createMeadowMap();
   }

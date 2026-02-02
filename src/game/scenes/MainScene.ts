@@ -55,7 +55,11 @@ export class MainScene extends Scene {
     | Phaser.GameObjects.Rectangle
     | Phaser.GameObjects.Container
   > = new Map();
-  private lastUIPopupTimeMs = -Infinity;
+  private activeUI = 'None';
+  private isNearSpaceship = false;
+  private currentPlayerStyle = -1; // Added to track style changes
+  private playerMoveSpeedMultiplier = 1;
+  private interactHint!: Phaser.GameObjects.Text;
 
   constructor() {
     super('MainScene');
@@ -66,55 +70,28 @@ export class MainScene extends Scene {
       if (!monster.spriteUrl) continue;
       this.load.image(`monster-${monster.id}`, monster.spriteUrl);
     }
-    this.load.image('spaceship', 'assets/spaceship.png');
+    this.load.image('spaceship', 'assets/Npc/spaceship.png');
+    this.load.image('npc-merchant', 'assets/Npc/Merchant.png');
+    this.load.image('npc-blacksmith', 'assets/Npc/Blacksmith.png');
+
+    for (const item of Object.values(ITEM_DATABASE)) {
+      if (item.icon) {
+        this.load.image(`item-${item.id}`, item.icon);
+      }
+    }
+
+    // Player Assets (Fixed to Chibi Style)
+    this.load.image('player-main', 'assets/player/player_style_4.png');
+    this.load.image('player-up', 'assets/player/player_style_4_up.png');
+    this.load.image('player-side', 'assets/player/player_style_4_side.png');
   }
 
   create() {
     console.log('MainScene: create()');
 
-    // 1. Generate Textures Programmatically
+    // ... (rest of create)
 
-    // Player (Procedural Pixel Hero - Silver Hair, Taller)
-    const pGraphics = this.make.graphics({ x: 0, y: 0 });
-
-    // 1. Body (Tunic) - Blue
-    pGraphics.fillStyle(0x3366cc);
-    pGraphics.fillRect(8, 26, 16, 14); // Taller body
-
-    // 2. Head (Skin) - Peach
-    pGraphics.fillStyle(0xffccaa);
-    pGraphics.fillRect(8, 10, 16, 16); // Larger head
-
-    // 3. Hair (Silver) - Dynamic/Flowing Style
-    pGraphics.fillStyle(0xc0c0c0); // Silver color
-    // Base hair
-    pGraphics.fillRect(6, 8, 20, 6); // Top wider
-    // Spiky bangs (front)
-    pGraphics.fillRect(8, 14, 3, 4); // Left bang
-    pGraphics.fillRect(13, 15, 2, 3); // Middle bang
-    pGraphics.fillRect(21, 14, 3, 4); // Right bang
-    // Flowing side hair
-    pGraphics.fillRect(4, 10, 4, 14); // Left flowing
-    pGraphics.fillRect(24, 10, 4, 14); // Right flowing
-    // Spiky back tips (wind effect)
-    pGraphics.fillRect(0, 12, 4, 3); // Far left spike
-    pGraphics.fillRect(28, 12, 4, 3); // Far right spike
-    pGraphics.fillRect(2, 16, 3, 4); // Left lower spike
-    pGraphics.fillRect(27, 16, 3, 4); // Right lower spike
-
-    // 4. Eyes (Black)
-    pGraphics.fillStyle(0x000000);
-    pGraphics.fillRect(11, 16, 2, 2); // Left Eye
-    pGraphics.fillRect(19, 16, 2, 2); // Right Eye
-
-    // 5. Legs/Feet
-    pGraphics.fillStyle(0x222222);
-    pGraphics.fillRect(10, 40, 4, 6); // Left Foot
-    pGraphics.fillRect(18, 40, 4, 6); // Right Foot
-
-    pGraphics.generateTexture('player-texture', 32, 48);
-    pGraphics.destroy();
-
+    // 1. Generate Textures Programmatically (Map tileset only)
     // 2. Map (tileset texture)
     const stitcher = this.make.graphics({ x: 0, y: 0 });
 
@@ -192,11 +169,10 @@ export class MainScene extends Scene {
     // 6: Flower (Garden) - Base: Grass
     drawTile(TILE_SIZE * 6, 0x7cbd6c, 0, 0, 'flower'); // Light/Dark ignored for flowers
 
-    // 7: Deep Space (Pure Black Void + Rare Tiny Stars)
-    drawTile(TILE_SIZE * 7, 0x010103, 0x050510, 0x000000); // Almost pure black
-    // Add explicit tiny stars for Deep Space (sparse)
+    // 7. Deep Space
+    drawTile(TILE_SIZE * 7, 0x010103, 0x050510, 0x000000);
     for (let i = 0; i < 2; i++) {
-      stitcher.fillStyle(0x606080); // Dim white/blue
+      stitcher.fillStyle(0x606080);
       stitcher.fillRect(
         TILE_SIZE * 7 + Math.random() * TILE_SIZE,
         Math.random() * TILE_SIZE,
@@ -205,34 +181,13 @@ export class MainScene extends Scene {
       );
     }
 
-    // 8: Nebula (Subtle Deep Dark Blue/Purple)
-    drawTile(TILE_SIZE * 8, 0x0a0a1a, 0x15152a, 0x05050f);
-    // Add subtle nebula dust
-    for (let i = 0; i < 6; i++) {
-      stitcher.fillStyle(0x1a1a3a); // Very dark blue
-      const s = Math.random() * 4 + 2;
-      stitcher.fillCircle(
-        TILE_SIZE * 8 + Math.random() * TILE_SIZE,
-        Math.random() * TILE_SIZE,
-        s,
-      );
-    }
+    // 8: Nebula (Soft Space Cloud)
+    drawTile(TILE_SIZE * 8, 0x200040, 0x400080, 0x100020);
 
-    // 9: Shining Stars (Bright on Black)
-    drawTile(TILE_SIZE * 9, 0x020205, 0x0a0a15, 0x000000); // Black base
-    // Add bright shining stars
-    for (let i = 0; i < 5; i++) {
-      stitcher.fillStyle(0xffffff); // Pure white
-      stitcher.fillRect(
-        TILE_SIZE * 9 + Math.random() * TILE_SIZE,
-        Math.random() * TILE_SIZE,
-        2,
-        2,
-      );
-    }
-    // Add twinkling cyan
-    for (let i = 0; i < 4; i++) {
-      stitcher.fillStyle(0x88ffff); // Bright Cyan
+    // 9: Star Cluster (Dense Stars)
+    drawTile(TILE_SIZE * 9, 0x000020, 0x8888ff, 0x000000);
+    for (let i = 0; i < 8; i++) {
+      stitcher.fillStyle(0xffffff);
       stitcher.fillRect(
         TILE_SIZE * 9 + Math.random() * TILE_SIZE,
         Math.random() * TILE_SIZE,
@@ -241,7 +196,19 @@ export class MainScene extends Scene {
       );
     }
 
-    stitcher.generateTexture('tileset-texture', TILE_SIZE * 10, TILE_SIZE);
+    // 10: Ice Floor (Light Cyan/Whiteish)
+    drawTile(TILE_SIZE * 10, 0xe0f7fa, 0xffffff, 0xb2ebf2);
+
+    // 11: Ice Wall (Crystalline Blue)
+    drawTile(TILE_SIZE * 11, 0x4dd0e1, 0x80deea, 0x00acc1);
+
+    // 12: Snow (Pure White)
+    drawTile(TILE_SIZE * 12, 0xf5fafa, 0xffffff, 0xe0eeee);
+
+    // 13: Frozen Tree (White/Blue)
+    drawTile(TILE_SIZE * 13, 0xe0f7fa, 0xffffff, 0x81d4fa, 'tree');
+
+    stitcher.generateTexture('tileset-texture', TILE_SIZE * 14, TILE_SIZE);
     stitcher.destroy();
 
     // 3. Portal Texture (Magic Light)
@@ -260,7 +227,7 @@ export class MainScene extends Scene {
     this.loadMap('town');
 
     // 3. Create Player
-    this.player = this.add.sprite(400, 300, 'player-texture');
+    this.player = this.add.sprite(400, 300, 'player-main');
     this.player.setDepth(10);
     this.player.setData('direction', 0);
 
@@ -268,7 +235,7 @@ export class MainScene extends Scene {
     this.attackRangeCircle = this.add.circle(
       400,
       300,
-      80, // Default range for initialization
+      60, // Default range for initialization
       0x000000,
       0,
     );
@@ -288,6 +255,18 @@ export class MainScene extends Scene {
     // Set bounds so camera doesn't show too much empty black space if map is small
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
     this.cameras.main.setZoom(1.0); // Reset zoom to 1 to see more context if needed, or keep 1.5
+
+    // 4.5. Interaction Hint
+    this.interactHint = this.add
+      .text(0, 0, '[F] 대화하기', {
+        fontSize: '16px',
+        color: '#ffffff',
+        backgroundColor: '#00000088',
+        padding: { x: 8, y: 4 },
+      })
+      .setDepth(20)
+      .setOrigin(0.5)
+      .setVisible(false);
 
     // 5. Input
     if (this.input.keyboard) {
@@ -389,6 +368,8 @@ export class MainScene extends Scene {
   handleStateUpdate(state: GameState) {
     if (!this.player) return;
 
+    this.activeUI = state.activeUI;
+
     const prevMapId = this.currentMapId;
     this.currentMapId = state.currentMapId;
 
@@ -410,7 +391,15 @@ export class MainScene extends Scene {
 
     // We will IGNORE position updates from React for the player to prevent jitter/overwrites
     // while we are controlling locally. We only accept enemy updates.
-    // Update Player
+    // 1. Sync Style (Fixed to Chibi)
+    if (this.currentPlayerStyle !== 4) {
+      this.currentPlayerStyle = 4;
+      this.player.setTexture('player-main');
+      this.player.setDisplaySize(128, 128);
+    }
+
+    // 2. Sync Player Position & Animation Info from state
+    this.playerMoveSpeedMultiplier = state.player.moveSpeedMultiplier;
     // this.player.setPosition(state.player.position.x, state.player.position.y);
 
     // Update Enemies
@@ -617,15 +606,139 @@ export class MainScene extends Scene {
       currentMap.npcs.forEach((npc) => {
         let obj = this.npcs.get(npc.id);
         if (!obj) {
-          if (npc.type === 'Spaceship') {
-            obj = this.add.sprite(npc.position.x, npc.position.y, 'spaceship');
-            (obj as Phaser.GameObjects.Sprite).setDisplaySize(
-              npc.size.x,
-              npc.size.y,
-            );
-            obj.setDepth(8);
+          let textureKey = '';
+          if (npc.type === 'Spaceship') textureKey = 'spaceship';
+          else if (npc.type === 'Merchant') textureKey = 'npc-merchant';
+          else if (npc.type === 'Blacksmith') textureKey = 'npc-blacksmith';
+
+          if (textureKey || npc.type === 'Guide') {
+            if (npc.type === 'Spaceship') {
+              const container = this.add.container(
+                npc.position.x,
+                npc.position.y,
+              );
+
+              const sprite = this.add.sprite(0, 0, textureKey);
+              sprite.setDisplaySize(npc.size.x, npc.size.y);
+
+              container.add([sprite]);
+              container.setDepth(8);
+              obj = container;
+            } else if (npc.type === 'Guide') {
+              // Holographic Guide
+              const container = this.add.container(
+                npc.position.x,
+                npc.position.y,
+              );
+
+              // 1. Hologram Base (Glow)
+              const glow = this.add.graphics();
+              glow.fillStyle(0x00ffff, 0.2);
+              glow.fillEllipse(0, 0, npc.size.x / 1.5, npc.size.y / 2.5);
+
+              // 2. Hologram Body (Wireframe-ish)
+              const body = this.add.graphics();
+              body.lineStyle(2, 0x00ffff, 0.8);
+              body.strokeRoundedRect(
+                -npc.size.x / 2,
+                -npc.size.y / 2,
+                npc.size.x,
+                npc.size.y,
+                10,
+              );
+              body.fillStyle(0x00ffff, 0.1);
+              body.fillRoundedRect(
+                -npc.size.x / 2,
+                -npc.size.y / 2,
+                npc.size.x,
+                npc.size.y,
+                10,
+              );
+
+              // 3. Scanline Effect
+              const scanline = this.add.rectangle(
+                0,
+                -npc.size.y / 2,
+                npc.size.x,
+                2,
+                0xffffff,
+                0.5,
+              );
+              this.tweens.add({
+                targets: scanline,
+                y: npc.size.y / 2,
+                duration: 1500,
+                repeat: -1,
+                yoyo: true,
+                ease: 'Sine.easeInOut',
+              });
+
+              // 4. Floating Animation (Whole Container)
+              this.tweens.add({
+                targets: container,
+                y: npc.position.y - 10,
+                duration: 2000,
+                yoyo: true,
+                repeat: -1,
+                ease: 'Sine.easeInOut',
+              });
+
+              // 5. Alpha Pulse
+              this.tweens.add({
+                targets: [body, glow],
+                alpha: 0.6,
+                duration: 100,
+                yoyo: true,
+                repeat: -1,
+                hold: 2000, // Flickers efficiently
+                repeatDelay: Math.random() * 1000,
+              });
+
+              const offsetX = npc.nameOffset?.x ?? 0;
+              const offsetY = npc.nameOffset?.y ?? -npc.size.y / 2 - 15;
+
+              const nameLabel = this.add
+                .text(offsetX, offsetY, npc.name, {
+                  fontSize: '14px',
+                  color: '#00ffff', // Cyan text for hologram
+                  stroke: '#000000',
+                  strokeThickness: 3,
+                  fontStyle: 'bold', // Bold for emphasis
+                })
+                .setOrigin(0.5);
+
+              container.add([glow, body, scanline, nameLabel]);
+              container.setDepth(8);
+
+              obj = container;
+            } else {
+              // Merchant/Blacksmith: Sprite + Label in Container
+              const container = this.add.container(
+                npc.position.x,
+                npc.position.y,
+              );
+              const sprite = this.add.sprite(0, 0, textureKey);
+              sprite.setDisplaySize(npc.size.x, npc.size.y);
+
+              const offsetX = npc.nameOffset?.x ?? 0;
+              const offsetY = npc.nameOffset?.y ?? -npc.size.y / 2 - 15;
+
+              const nameLabel = this.add
+                .text(offsetX, offsetY, npc.name, {
+                  fontSize: '14px',
+                  color: '#ffffff',
+                  stroke: '#000000',
+                  strokeThickness: 3,
+                })
+                .setOrigin(0.5);
+
+              container.add([sprite, nameLabel]);
+              container.setDepth(8);
+
+              obj = container;
+            }
           } else {
-            // Default NPC representation
+            // Default NPC representation (Rectangle + Label)
             const container = this.add.container(
               npc.position.x,
               npc.position.y,
@@ -640,8 +753,11 @@ export class MainScene extends Scene {
             );
             body.setStrokeStyle(2, 0xffffff);
 
+            const offsetX = npc.nameOffset?.x ?? 0;
+            const offsetY = npc.nameOffset?.y ?? -npc.size.y / 2 - 15;
+
             const nameLabel = this.add
-              .text(0, -npc.size.y / 2 - 15, npc.name, {
+              .text(offsetX, offsetY, npc.name, {
                 fontSize: '12px',
                 color: '#ffffff',
                 stroke: '#000000',
@@ -651,11 +767,13 @@ export class MainScene extends Scene {
 
             container.add([body, nameLabel]);
             container.setDepth(8);
+
             obj = container;
           }
           this.npcs.set(npc.id, obj);
         } else {
-          obj.setPosition(npc.position.x, npc.position.y);
+          // Update position if needed (though static for now)
+          // obj.setPosition(npc.position.x, npc.position.y);
         }
       });
     }
@@ -714,9 +832,24 @@ export class MainScene extends Scene {
         // Glow effect
         const glow = this.add.circle(0, 0, 15, 0xffffff, 0.2);
 
-        // Item box (Small yellow bag-like rectangle)
-        const box = this.add.rectangle(0, 0, 16, 16, 0xffff00, 1);
-        box.setStrokeStyle(2, 0xffd700);
+        // Use icon if exists
+        const itemKey = `item-${drop.itemId}`;
+        let itemVisual;
+        if (this.textures.exists(itemKey)) {
+          itemVisual = this.add.sprite(0, 0, itemKey);
+          const size = itemInfo?.worldSize ||
+            itemInfo?.size || { x: 24, y: 24 };
+          itemVisual.setDisplaySize(size.x, size.y);
+        } else {
+          // Fallback box
+          const size = itemInfo?.worldSize ||
+            itemInfo?.size || { x: 16, y: 16 };
+          itemVisual = this.add.rectangle(0, 0, size.x, size.y, 0xffff00, 1);
+          (itemVisual as Phaser.GameObjects.Rectangle).setStrokeStyle(
+            2,
+            0xffd700,
+          );
+        }
 
         // Item Name Label
         const label = this.add
@@ -728,7 +861,7 @@ export class MainScene extends Scene {
           })
           .setOrigin(0.5);
 
-        container.add([glow, box, label]);
+        container.add([glow, itemVisual, label]);
         container.setDepth(4);
 
         // Floating animation
@@ -742,6 +875,26 @@ export class MainScene extends Scene {
         });
 
         this.droppedItems.set(drop.id, container);
+      } else {
+        // Update size of existing items (Reactivity Fix)
+        const container = this.droppedItems.get(drop.id)!;
+        const itemInfo = ITEM_DATABASE[drop.itemId];
+        const itemVisual = container.list[1] as
+          | Phaser.GameObjects.Sprite
+          | Phaser.GameObjects.Rectangle;
+
+        if (itemVisual) {
+          const size = itemInfo?.worldSize ||
+            itemInfo?.size || { x: 24, y: 24 };
+          if (itemVisual instanceof Phaser.GameObjects.Sprite) {
+            itemVisual.setDisplaySize(size.x, size.y);
+          } else {
+            // Rectangles need to be recreated or resized via width/height
+            // For simplicity with existing code, we update width/height
+            itemVisual.setSize(size.x, size.y);
+            itemVisual.setDisplaySize(size.x, size.y);
+          }
+        }
       }
     });
   }
@@ -801,7 +954,7 @@ export class MainScene extends Scene {
     ) {
       const radiusX = 10;
       const radiusY = 10;
-      const offsetP = 38;
+      const offsetP = 48;
       const progress = this.playerAttackStatus.progress;
       const cx = px;
       const cy = py + offsetP;
@@ -889,10 +1042,59 @@ export class MainScene extends Scene {
         this.enemyHitboxGraphics.strokeRect(hbx - hw, hby - hh, hbX, hbY);
       });
     }
+
+    // 4. Draw Synergy Auras
+    this.currentEnemies.forEach((enemy: any) => {
+      if (enemy.synergyActive) {
+        this.rangeGraphics.lineStyle(2, 0x00ffff, 0.4);
+        this.rangeGraphics.fillStyle(0x00ffff, 0.1);
+
+        const auraSize = Math.max(enemy.size.x, enemy.size.y) * 0.8;
+        this.rangeGraphics.fillEllipse(
+          enemy.position.x,
+          enemy.position.y + 20,
+          auraSize,
+          auraSize / 2,
+        );
+        this.rangeGraphics.strokeEllipse(
+          enemy.position.x,
+          enemy.position.y + 20,
+          auraSize,
+          auraSize / 2,
+        );
+      }
+    });
   }
 
   update() {
     if (!this.player || !this.cursors || !this.wasd) return;
+
+    // Check for nearest NPC for hint
+    const currentMap = WORLD_DATABASE[this.currentMapId];
+    if (currentMap && this.activeUI === 'None') {
+      const nearestNPC = currentMap.npcs.find((npc) => {
+        const dx = npc.position.x - this.player.x;
+        const dy = npc.position.y - this.player.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        return dist < 100;
+      });
+
+      if (nearestNPC) {
+        this.interactHint
+          .setPosition(this.player.x, this.player.y - 80)
+          .setVisible(true);
+      } else {
+        this.interactHint.setVisible(false);
+      }
+    } else {
+      this.interactHint.setVisible(false);
+    }
+
+    // Block movement if UI is open
+    if (this.activeUI !== 'None') {
+      // Ensure player stops if they were moving when UI opened
+      return;
+    }
 
     // ...
     let vx = 0;
@@ -909,9 +1111,28 @@ export class MainScene extends Scene {
       vx /= mag;
       vy /= mag;
 
-      this.player.x += vx * 4;
-      this.player.y += vy * 4;
+      const baseSpeed = 4;
+      const finalSpeed = baseSpeed * this.playerMoveSpeedMultiplier;
+
+      this.player.x += vx * finalSpeed;
+      this.player.y += vy * finalSpeed;
       this.player.setData('direction', Math.atan2(vy, vx));
+
+      // 1. Update Directional Visuals in real-time
+      if (Math.abs(vy) > Math.abs(vx)) {
+        // Vertical movement is dominant
+        if (vy < 0) {
+          this.player.setTexture('player-up');
+        } else {
+          this.player.setTexture('player-main');
+        }
+        this.player.setFlipX(false);
+      } else {
+        // Horizontal movement is dominant
+        this.player.setTexture('player-side');
+        this.player.setFlipX(vx > 0); // Asset faces left, so flip if moving right
+      }
+      this.player.setDisplaySize(128, 128); // Ensure size is kept after texture swap
     }
 
     // Update visualizations in real-time
@@ -941,7 +1162,6 @@ export class MainScene extends Scene {
     }
 
     // Portal & Interaction Check (Phaser-side)
-    const currentMap = WORLD_DATABASE[this.currentMapId];
     if (currentMap) {
       // 1. Portal Check
       if (nowMs - this.lastPortalTimeMs > 500) {
@@ -968,17 +1188,20 @@ export class MainScene extends Scene {
       }
 
       // 2. Spaceship Interaction Check (Special "on touch" trigger)
-      if (nowMs - this.lastUIPopupTimeMs > 2000) {
-        const spaceship = currentMap.npcs.find((n) => n.type === 'Spaceship');
-        if (spaceship) {
-          const dx = spaceship.position.x - this.player.x;
-          const dy = spaceship.position.y - this.player.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < 100) {
-            // Near the spaceship
-            this.game.events.emit('openSpaceshipUI');
-            this.lastUIPopupTimeMs = nowMs;
+      const spaceship = currentMap.npcs.find((n) => n.type === 'Spaceship');
+      if (spaceship) {
+        const dx = spaceship.position.x - this.player.x;
+        const dy = spaceship.position.y - this.player.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < 100) {
+          if (!this.isNearSpaceship && this.activeUI === 'None') {
+            // Near the spaceship for the first time
+            this.game.events.emit('npcClicked', spaceship);
+            this.isNearSpaceship = true;
           }
+        } else {
+          this.isNearSpaceship = false;
         }
       }
     }

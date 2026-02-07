@@ -158,6 +158,20 @@ const ActionButton = styled.button`
   }
 `;
 
+const SellAllButton = styled(ActionButton)`
+  background: #4a3a3a;
+  border-color: #664444;
+  &:hover {
+    background: #5a4a4a;
+    border-color: #ff4444;
+  }
+`;
+
+const ButtonGroup = styled.div`
+  display: flex;
+  gap: 8px;
+`;
+
 const GoldInfo = styled.div`
   padding: 15px;
   background: #2a2a2a;
@@ -171,7 +185,7 @@ interface ShopWindowProps {
   state: GameState;
   onClose: () => void;
   onBuy: (itemId: string) => void;
-  onSell: (invIndex: number) => void;
+  onSell: (invIndex: number, sellAll?: boolean) => void;
 }
 
 export const ShopWindow: React.FC<ShopWindowProps> = ({
@@ -190,15 +204,15 @@ export const ShopWindow: React.FC<ShopWindowProps> = ({
     <Overlay onClick={(e) => e.target === e.currentTarget && onClose()}>
       <Window>
         <Header>
-          마을 상점
+          {'Shop'}
           <CloseButton onClick={onClose}>×</CloseButton>
         </Header>
         <TabContainer>
           <Tab active={tab === 'Buy'} onClick={() => setTab('Buy')}>
-            구매
+            {'Buy'}
           </Tab>
           <Tab active={tab === 'Sell'} onClick={() => setTab('Sell')}>
-            판매
+            {'Sell'}
           </Tab>
         </TabContainer>
 
@@ -207,6 +221,20 @@ export const ShopWindow: React.FC<ShopWindowProps> = ({
             ? shopItems.map((itemId) => {
                 const item = ITEM_DATABASE[itemId];
                 if (!item) return null;
+
+                // [NEW] Hide equipment already owned
+                const isEquipment =
+                  item.type === 'Weapon' ||
+                  item.type === 'Armor' ||
+                  item.type === 'Helmet';
+                const alreadyOwned =
+                  isEquipment &&
+                  state.player.acquiredEquipment.includes(itemId);
+
+                if (alreadyOwned) {
+                  return null; // Hide owned equipment from shop
+                }
+
                 return (
                   <ItemCard key={itemId}>
                     <ItemInfo>
@@ -217,7 +245,9 @@ export const ShopWindow: React.FC<ShopWindowProps> = ({
                       />
                       <ItemDetail>
                         <ItemName>{item.name}</ItemName>
-                        <ItemPrice>{item.price} Gold</ItemPrice>
+                        <ItemPrice>
+                          {item.price} {'Gold'}
+                        </ItemPrice>
                       </ItemDetail>
                     </ItemInfo>
                     <ItemDesc>{item.description}</ItemDesc>
@@ -225,7 +255,7 @@ export const ShopWindow: React.FC<ShopWindowProps> = ({
                       disabled={state.player.gold < item.price}
                       onClick={() => onBuy(itemId)}
                     >
-                      구매하기
+                      {'Buy'}
                     </ActionButton>
                   </ItemCard>
                 );
@@ -246,19 +276,30 @@ export const ShopWindow: React.FC<ShopWindowProps> = ({
                         <ItemName>
                           {item.name} (x{invItem.quantity})
                         </ItemName>
-                        <ItemPrice>{sellPrice} Gold</ItemPrice>
+                        <ItemPrice>
+                          {sellPrice} {'Gold'}
+                        </ItemPrice>
                       </ItemDetail>
                     </ItemInfo>
                     <ItemDesc>{item.description}</ItemDesc>
-                    <ActionButton onClick={() => onSell(index)}>
-                      판매하기
-                    </ActionButton>
+                    <ButtonGroup>
+                      <ActionButton onClick={() => onSell(index)}>
+                        {'Sell 1'}
+                      </ActionButton>
+                      {invItem.quantity > 1 && (
+                        <SellAllButton onClick={() => onSell(index, true)}>
+                          {'Sell All'}
+                        </SellAllButton>
+                      )}
+                    </ButtonGroup>
                   </ItemCard>
                 );
               })}
         </Content>
 
-        <GoldInfo>보유 골드: {state.player.gold} G</GoldInfo>
+        <GoldInfo>
+          {'Gold'}: {state.player.gold} G
+        </GoldInfo>
       </Window>
     </Overlay>
   );

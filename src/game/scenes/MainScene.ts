@@ -4,6 +4,7 @@ import { TILE_SIZE, MAP_WIDTH, MAP_HEIGHT } from '../data/townMap';
 import { getMapTileData } from '../data/worldMaps';
 import { WORLD_DATABASE } from '../../types/world';
 import { MONSTER_DATABASE } from '../../types/monster';
+import { levelToTier, getDifficultyColor } from '../../utils/levelUtils';
 import { ITEM_DATABASE } from '../../types/item';
 
 export class MainScene extends Scene {
@@ -14,16 +15,34 @@ export class MainScene extends Scene {
   > = new Map();
   private enemyHpBars: Map<
     string,
-    { bg: Phaser.GameObjects.Rectangle; fg: Phaser.GameObjects.Rectangle }
+    {
+      bg: Phaser.GameObjects.Rectangle;
+      fg: Phaser.GameObjects.Rectangle;
+      shield?: Phaser.GameObjects.Rectangle;
+    }
   > = new Map();
+  private enemyLevelTexts: Map<string, Phaser.GameObjects.Text> = new Map();
   private enemyHpMap: Map<string, number> = new Map();
+  private enemyLastTailSwipeMap: Map<string, number> = new Map();
+  private enemyLastTailSwipeStartMap: Map<string, number> = new Map();
+  private enemyLastGlacierFallMap: Map<string, number> = new Map();
+  private enemyLastOrbitalLaserStartMap: Map<string, number> = new Map();
+  private enemyLastEnergyPulseMap: Map<string, number> = new Map();
+  private bossUiContainer: Phaser.GameObjects.Container | null = null;
+  private bossHpBar: Phaser.GameObjects.Rectangle | null = null;
+  private bossShieldBar: Phaser.GameObjects.Rectangle | null = null;
+  private bossNameText: Phaser.GameObjects.Text | null = null;
+  private bossHpText: Phaser.GameObjects.Text | null = null;
   private attackRangeCircle!: Phaser.GameObjects.Arc;
+  private playerHp: number = 0;
   private portals: Map<string, Phaser.GameObjects.Container> = new Map();
   private droppedItems: Map<string, Phaser.GameObjects.Container> = new Map();
+  private npcs: Map<string, Phaser.GameObjects.Container> = new Map();
   private currentMapId: string = 'town';
   private hasSyncedSpawnFromState = false;
   private lastPortalTimeMs = -Infinity;
   private lastPlayerSyncMs = -Infinity;
+  private lastNpcCheckMs = 0; // Added NPC check cooldown
   private tilemap?: Phaser.Tilemaps.Tilemap;
   private mapLayer?: Phaser.Tilemaps.TilemapLayer;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -49,17 +68,22 @@ export class MainScene extends Scene {
   };
   private cooldownGraphics!: Phaser.GameObjects.Graphics;
   private isPlayerFlashing = false;
-  private npcs: Map<
-    string,
-    | Phaser.GameObjects.Sprite
-    | Phaser.GameObjects.Rectangle
-    | Phaser.GameObjects.Container
-  > = new Map();
   private activeUI = 'None';
   private isNearSpaceship = false;
   private currentPlayerStyle = -1; // Added to track style changes
   private playerMoveSpeedMultiplier = 1;
   private interactHint!: Phaser.GameObjects.Text;
+  private glacierFallGraphics!: Phaser.GameObjects.Graphics;
+  private orbitalLaserGraphics!: Phaser.GameObjects.Graphics;
+  private mapTintOverlay!: Phaser.GameObjects.Rectangle;
+  private currentGlacierFalls: any[] = [];
+  private currentOrbitalLasers: any[] = [];
+  private glacierSpikes: Map<string, Phaser.GameObjects.Sprite> = new Map();
+  private activeOrbitalLaserIds: Set<string> = new Set();
+  private bossAuraEmitters: Map<
+    string,
+    Phaser.GameObjects.Particles.ParticleEmitter
+  > = new Map();
 
   constructor() {
     super('MainScene');
@@ -74,6 +98,15 @@ export class MainScene extends Scene {
     this.load.image('npc-merchant', 'assets/Npc/Merchant.png');
     this.load.image('npc-blacksmith', 'assets/Npc/Blacksmith.png');
 
+    // Preload Custom NPC Sprites
+    for (const map of Object.values(WORLD_DATABASE)) {
+      for (const npc of map.npcs) {
+        if (npc.spriteUrl) {
+          this.load.image(`npc-${npc.id}`, npc.spriteUrl);
+        }
+      }
+    }
+
     for (const item of Object.values(ITEM_DATABASE)) {
       if (item.icon) {
         this.load.image(`item-${item.id}`, item.icon);
@@ -84,10 +117,23 @@ export class MainScene extends Scene {
     this.load.image('player-main', 'assets/player/player_style_4.png');
     this.load.image('player-up', 'assets/player/player_style_4_up.png');
     this.load.image('player-side', 'assets/player/player_style_4_side.png');
+
+    // Walking Frames (Consistency matching Style 4)
+    this.load.image('player-down-walk-1', 'assets/player/player_walk_down.png');
+    this.load.image('player-up-walk-1', 'assets/player/player_walk_up.png');
+    this.load.image('player-side-walk-1', 'assets/player/player_walk_side.png');
   }
 
   create() {
     console.log('MainScene: create()');
+
+    // 0. Initialize UI & Overlays (Early init to prevent null errors in loadMap)
+    // Map Tint Overlay
+    this.mapTintOverlay = this.add.rectangle(0, 0, 1280, 720, 0xffaa00, 0);
+    this.mapTintOverlay.setOrigin(0);
+    this.mapTintOverlay.setScrollFactor(0);
+    this.mapTintOverlay.setDepth(200); // Topmost
+    this.mapTintOverlay.setBlendMode(Phaser.BlendModes.ADD);
 
     // ... (rest of create)
 
@@ -224,6 +270,26 @@ export class MainScene extends Scene {
     pLight.generateTexture('portal-light', 32, 32);
     pLight.destroy();
 
+    // 4. Ice Spike Texture (for Glacier Fall)
+    const iceSpike = this.make.graphics({ x: 0, y: 0 });
+    iceSpike.fillStyle(0xffffff, 1);
+    // Draw a sharp triangular spike
+    iceSpike.fillTriangle(16, 0, 0, 64, 32, 64);
+    // Add some shading/depth
+    iceSpike.fillStyle(0x00aaff, 0.5);
+    iceSpike.fillTriangle(16, 0, 16, 64, 32, 64);
+    iceSpike.lineStyle(2, 0x88e8ff, 1);
+    iceSpike.strokeTriangle(16, 0, 0, 64, 32, 64);
+    iceSpike.generateTexture('ice-spike', 32, 64);
+    iceSpike.destroy();
+
+    // 5. Frost Particle Texture
+    const frostPart = this.make.graphics({ x: 0, y: 0 });
+    frostPart.fillStyle(0xffffff, 1);
+    frostPart.fillCircle(4, 4, 4);
+    frostPart.generateTexture('frost-particle', 8, 8);
+    frostPart.destroy();
+
     this.loadMap('town');
 
     // 3. Create Player
@@ -251,6 +317,12 @@ export class MainScene extends Scene {
     this.cooldownGraphics = this.add.graphics();
     this.cooldownGraphics.setDepth(9); // Just below player (10)
 
+    this.glacierFallGraphics = this.add.graphics();
+    this.glacierFallGraphics.setDepth(6); // Above portals, below NPCs
+
+    this.orbitalLaserGraphics = this.add.graphics();
+    this.orbitalLaserGraphics.setDepth(15); // High depth for laser beams
+
     // 4. Camera Follow
     // Set bounds so camera doesn't show too much empty black space if map is small
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
@@ -258,7 +330,7 @@ export class MainScene extends Scene {
 
     // 4.5. Interaction Hint
     this.interactHint = this.add
-      .text(0, 0, '[F] 대화하기', {
+      .text(0, 0, 'Interact [F]', {
         fontSize: '16px',
         color: '#ffffff',
         backgroundColor: '#00000088',
@@ -267,6 +339,9 @@ export class MainScene extends Scene {
       .setDepth(20)
       .setOrigin(0.5)
       .setVisible(false);
+
+    // 4.6. Location Notice UI (Initialized early)
+    // 4.7. Map Tint Overlay (Initialized early)
 
     // 5. Input
     if (this.input.keyboard) {
@@ -283,10 +358,26 @@ export class MainScene extends Scene {
     this.game.events.on('updateState', this.handleStateUpdate, this);
     this.scale.on('resize', this.updateCameraBounds, this);
 
-    window.addEventListener('attack-ready', () => {
-      if (this.currentSettings.cooldownVisualMode === 3 && this.player) {
-        this.flashPlayer();
-      }
+    // Player Animations (2-Frame high-quality loops)
+    this.anims.create({
+      key: 'player-walk-down',
+      frames: [{ key: 'player-main' }, { key: 'player-down-walk-1' }],
+      frameRate: 6,
+      repeat: -1,
+    });
+
+    this.anims.create({
+      key: 'player-walk-up',
+      frames: [{ key: 'player-up' }, { key: 'player-up-walk-1' }],
+      frameRate: 6,
+      repeat: -1,
+    });
+
+    this.anims.create({
+      key: 'player-walk-side',
+      frames: [{ key: 'player-side' }, { key: 'player-side-walk-1' }],
+      frameRate: 6,
+      repeat: -1,
     });
 
     // Notify Ready
@@ -301,20 +392,11 @@ export class MainScene extends Scene {
     this.tilemap?.destroy();
 
     this.tilemap = this.make.tilemap({
-      data,
+      data: data,
       tileWidth: TILE_SIZE,
       tileHeight: TILE_SIZE,
     });
-
-    const tileset = this.tilemap.addTilesetImage(
-      'tileset-texture',
-      'tileset-texture',
-      TILE_SIZE,
-      TILE_SIZE,
-      0,
-      0,
-    );
-
+    const tileset = this.tilemap.addTilesetImage('tileset-texture');
     if (tileset) {
       this.mapLayer = this.tilemap.createLayer(0, tileset, 0, 0) || undefined;
       if (this.mapLayer) {
@@ -328,6 +410,16 @@ export class MainScene extends Scene {
     const world = WORLD_DATABASE[mapId];
     if (world) {
       this.cameras.main.setBackgroundColor(world.bgColor);
+      // Apply Map Visual Effects via Overlay
+      if (mapId === 'town') {
+        this.mapTintOverlay.setAlpha(0.1); // Warm sunlight
+        this.mapTintOverlay.setFillStyle(0xffaa00, 0.1);
+      } else if (mapId === 'ice_cave' || mapId === 'frozen_cliff') {
+        this.mapTintOverlay.setAlpha(0.15); // Cold blue
+        this.mapTintOverlay.setFillStyle(0x00aaff, 0.15);
+      } else {
+        this.mapTintOverlay.setAlpha(0);
+      }
     }
   }
 
@@ -369,6 +461,12 @@ export class MainScene extends Scene {
     if (!this.player) return;
 
     this.activeUI = state.activeUI;
+
+    // Detect player damage
+    if (this.playerHp > 0 && state.player.hp < this.playerHp) {
+      this.flashPlayer();
+    }
+    this.playerHp = state.player.hp;
 
     const prevMapId = this.currentMapId;
     this.currentMapId = state.currentMapId;
@@ -415,7 +513,20 @@ export class MainScene extends Scene {
         if (bars) {
           bars.bg.destroy();
           bars.fg.destroy();
+          bars.shield?.destroy();
           this.enemyHpBars.delete(id);
+        }
+
+        const levelText = this.enemyLevelTexts.get(id);
+        if (levelText) {
+          levelText.destroy();
+          this.enemyLevelTexts.delete(id);
+        }
+
+        const aura = this.bossAuraEmitters.get(id);
+        if (aura) {
+          aura.destroy();
+          this.bossAuraEmitters.delete(id);
         }
       }
     }
@@ -466,10 +577,11 @@ export class MainScene extends Scene {
           bg.setOrigin(0, 0.5);
           bg.setDepth(11);
 
+          const hpRatio = enemy.maxHp > 0 ? enemy.hp / enemy.maxHp : 0;
           const fg = this.add.rectangle(
             0,
             0,
-            template.hpBarWidth,
+            template.hpBarWidth * hpRatio,
             barH,
             0xff3333,
             1,
@@ -477,7 +589,63 @@ export class MainScene extends Scene {
           fg.setOrigin(0, 0.5);
           fg.setDepth(12);
 
-          this.enemyHpBars.set(enemy.id, { bg, fg });
+          let shield: Phaser.GameObjects.Rectangle | undefined;
+          // Only create overhead shield bar if not a boss (since bosses use the top bar)
+          if (template.isBoss) {
+            this.createBossUI(template);
+          } else {
+            shield = this.add.rectangle(0, 0, 0, barH, 0x00ffff, 0.8);
+            shield.setOrigin(0, 0.5);
+            shield.setDepth(13);
+          }
+
+          this.enemyHpBars.set(enemy.id, { bg, fg, shield });
+        }
+      }
+
+      // Hide overhead bars for boss
+      const enemyBarsEntry = this.enemyHpBars.get(enemy.id);
+      if (enemyBarsEntry && template?.isBoss) {
+        enemyBarsEntry.bg.setVisible(false);
+        enemyBarsEntry.fg.setVisible(false);
+        enemyBarsEntry.shield?.setVisible(false);
+      }
+
+      // Level Text
+      let levelText = this.enemyLevelTexts.get(enemy.id);
+      if (template) {
+        if (!levelText) {
+          levelText = this.add.text(
+            enemy.position.x,
+            enemy.position.y,
+            `Lv.${enemy.level} ${levelToTier(enemy.level)}. ${template.name}`,
+            {
+              fontSize: '14px',
+              fontFamily: 'Outfit, Arial',
+              color: '#ffffff',
+              stroke: '#000000',
+              strokeThickness: 3,
+              fontStyle: 'bold',
+            },
+          );
+          levelText.setOrigin(0.5, 1);
+          levelText.setDepth(11);
+          this.enemyLevelTexts.set(enemy.id, levelText);
+        }
+        levelText.setVisible(!template.isBoss);
+        if (!template.isBoss) {
+          const tierStr = levelToTier(enemy.level);
+          const colorStr = getDifficultyColor(
+            this.registry.get('playerLv') || 1,
+            enemy.level,
+            false,
+          );
+          levelText.setText(`Lv.${enemy.level} ${tierStr}. ${template.name}`);
+          levelText.setColor(colorStr);
+          levelText.setPosition(
+            enemy.position.x + template.hpBarOffset.x,
+            enemy.position.y + template.hpBarOffset.y - 12,
+          );
         }
       }
       // Update position and size based on baseSize * scale
@@ -499,8 +667,101 @@ export class MainScene extends Scene {
       }
       this.enemyHpMap.set(enemy.id, enemy.hp);
 
-      const bars = this.enemyHpBars.get(enemy.id);
-      if (bars && template) {
+      // Skill Announcements
+      if (template?.id === 'frost_dragon') {
+        // 1. Preparation Phase (Announcement)
+        const prevTailSwipeStart =
+          this.enemyLastTailSwipeStartMap.get(enemy.id) || 0;
+        if (
+          enemy.tailSwipeStartTime &&
+          enemy.tailSwipeStartTime > prevTailSwipeStart
+        ) {
+          this.enemyLastTailSwipeStartMap.set(
+            enemy.id,
+            enemy.tailSwipeStartTime,
+          );
+          this.spawnSkillAnnouncement(enemy, 'Tail Swipe', '#ff8800');
+        }
+
+        // 2. Impact Phase (Visual Effect & Camera Shake)
+        const prevTailSwipe = this.enemyLastTailSwipeMap.get(enemy.id) || 0;
+        if (
+          enemy.lastTailSwipeTime &&
+          enemy.lastTailSwipeTime > prevTailSwipe
+        ) {
+          this.enemyLastTailSwipeMap.set(enemy.id, enemy.lastTailSwipeTime);
+          this.triggerTailSwipeEffect(enemy);
+        }
+
+        const prevGlacierFall = this.enemyLastGlacierFallMap.get(enemy.id) || 0;
+        if (
+          enemy.lastGlacierFallTime &&
+          enemy.lastGlacierFallTime > prevGlacierFall
+        ) {
+          this.enemyLastGlacierFallMap.set(enemy.id, enemy.lastGlacierFallTime);
+          this.spawnSkillAnnouncement(enemy, 'Glacier Fall', '#00aaff');
+        }
+      }
+
+      // [FIXED] Update Boss UI for ALL bosses, not just Frost Dragon
+      if (template?.isBoss) {
+        this.updateBossUI(enemy);
+      }
+
+      // [NEW] Luna Overseer Skill Announcements
+      if (template?.id === 'luna_overseer') {
+        // 1. Orbital Laser (Preparation Phase)
+        const prevLaserStart =
+          this.enemyLastOrbitalLaserStartMap.get(enemy.id) || 0;
+        if (
+          enemy.orbitalLaserStartTime &&
+          enemy.orbitalLaserStartTime > prevLaserStart
+        ) {
+          this.enemyLastOrbitalLaserStartMap.set(
+            enemy.id,
+            enemy.orbitalLaserStartTime,
+          );
+          this.spawnSkillAnnouncement(enemy, 'Orbital Laser', '#ffff00');
+        }
+
+        // 2. Energy Pulse (Instant / Cooldown based)
+        const prevPulse = this.enemyLastEnergyPulseMap.get(enemy.id) || 0;
+        if (
+          enemy.lastEnergyPulseTime &&
+          enemy.lastEnergyPulseTime > prevPulse
+        ) {
+          this.enemyLastEnergyPulseMap.set(enemy.id, enemy.lastEnergyPulseTime);
+          this.spawnSkillAnnouncement(enemy, 'Energy Pulse', '#00ffff');
+        }
+      }
+
+      // Boss Aura Particle System
+      if (template?.id === 'frost_dragon') {
+        let emitter = this.bossAuraEmitters.get(enemy.id);
+        if (!emitter) {
+          emitter = this.add.particles(
+            enemy.position.x,
+            enemy.position.y,
+            'frost-particle',
+            {
+              speed: { min: 50, max: 150 },
+              scale: { start: 0.6, end: 0 },
+              alpha: { start: 0.5, end: 0 },
+              lifespan: 2000,
+              blendMode: 'ADD',
+              frequency: 50,
+              tint: enemy.isEnraged ? 0xff4444 : 0x88e8ff,
+            },
+          );
+          emitter.setDepth(8); // Below boss
+          this.bossAuraEmitters.set(enemy.id, emitter);
+        }
+        emitter.setPosition(enemy.position.x, enemy.position.y);
+        emitter.setParticleTint(enemy.isEnraged ? 0xff4444 : 0x88e8ff);
+      }
+
+      const barsEntry = this.enemyHpBars.get(enemy.id);
+      if (barsEntry && template) {
         const ratio =
           enemy.maxHp > 0
             ? Math.max(0, Math.min(1, enemy.hp / enemy.maxHp))
@@ -509,12 +770,32 @@ export class MainScene extends Scene {
           enemy.position.x + template.hpBarOffset.x - template.hpBarWidth / 2;
         const y = enemy.position.y + template.hpBarOffset.y;
 
-        bars.bg.setPosition(x, y);
-        bars.fg.setPosition(x, y);
-        bars.bg.setSize(template.hpBarWidth, 6);
-        bars.fg.setSize(template.hpBarWidth * ratio, 6);
+        barsEntry.bg.setPosition(x, y);
+        barsEntry.fg.setPosition(x, y);
+        barsEntry.bg.setSize(template.hpBarWidth, 6);
+        barsEntry.fg.setSize(template.hpBarWidth * ratio, 6);
+
+        if (barsEntry.shield) {
+          barsEntry.shield.setPosition(x, y);
+          // Show shield as an overlay or extension
+          // Here we'll show it as an overlay that can exceed the HP bar width if needed
+          const shieldRatio =
+            enemy.maxHp > 0 ? (enemy.shield || 0) / enemy.maxHp : 0;
+          barsEntry.shield.width = template.hpBarWidth * shieldRatio;
+          barsEntry.shield.setVisible((enemy.shield || 0) > 0);
+        }
       }
     });
+
+    // Cleanup Boss UI if no bosses
+    const anyBoss = state.enemies.some((e) => MONSTER_DATABASE[e.type]?.isBoss);
+    if (!anyBoss && this.bossUiContainer) {
+      this.bossUiContainer.destroy();
+      this.bossUiContainer = null;
+      this.bossHpBar = null;
+      this.bossShieldBar = null;
+      this.bossNameText = null;
+    }
 
     // Update Portals (visual only)
     const currentMap = WORLD_DATABASE[state.currentMapId];
@@ -607,11 +888,20 @@ export class MainScene extends Scene {
         let obj = this.npcs.get(npc.id);
         if (!obj) {
           let textureKey = '';
-          if (npc.type === 'Spaceship') textureKey = 'spaceship';
-          else if (npc.type === 'Merchant') textureKey = 'npc-merchant';
-          else if (npc.type === 'Blacksmith') textureKey = 'npc-blacksmith';
+          // Check for custom sprite first
+          if (npc.spriteUrl && this.textures.exists(`npc-${npc.id}`)) {
+            textureKey = `npc-${npc.id}`;
+          } else if (npc.type === 'Spaceship') {
+            textureKey = 'spaceship';
+          } else if (npc.type === 'Merchant') {
+            textureKey = 'npc-merchant';
+          } else if (npc.type === 'Blacksmith') {
+            textureKey = 'npc-blacksmith';
+          } else if (npc.id === 'village_head') {
+            textureKey = 'npc-merchant';
+          }
 
-          if (textureKey || npc.type === 'Guide') {
+          if (textureKey || npc.type === 'Guide' || npc.id === 'town_sign') {
             if (npc.type === 'Spaceship') {
               const container = this.add.container(
                 npc.position.x,
@@ -622,6 +912,23 @@ export class MainScene extends Scene {
               sprite.setDisplaySize(npc.size.x, npc.size.y);
 
               container.add([sprite]);
+              container.setDepth(8);
+              obj = container;
+            } else if (npc.id === 'town_sign') {
+              const container = this.add.container(
+                npc.position.x,
+                npc.position.y,
+              );
+              const post = this.add.rectangle(0, 20, 10, 40, 0x5d4037);
+              const board = this.add.rectangle(
+                0,
+                -10,
+                npc.size.x,
+                npc.size.y / 2,
+                0x8d6e63,
+              );
+              board.setStrokeStyle(2, 0x3e2723);
+              container.add([post, board]);
               container.setDepth(8);
               obj = container;
             } else if (npc.type === 'Guide') {
@@ -795,6 +1102,8 @@ export class MainScene extends Scene {
       this.currentWeapon = null;
     }
     this.currentEnemies = state.enemies;
+    this.currentGlacierFalls = state.glacierFalls;
+    this.currentOrbitalLasers = state.orbitalLasers;
 
     // Update Damage Numbers
     state.damageNumbers.forEach((dmg) => {
@@ -926,6 +1235,34 @@ export class MainScene extends Scene {
     });
   }
 
+  private spawnSkillAnnouncement(enemy: any, skillName: string, color: string) {
+    const text = this.add.text(
+      enemy.position.x,
+      enemy.position.y - 100,
+      skillName,
+      {
+        fontSize: '32px',
+        color: color,
+        fontStyle: 'bold',
+        stroke: '#000000',
+        strokeThickness: 6,
+        fontFamily: 'Outfit, Arial',
+      },
+    );
+    text.setOrigin(0.5);
+    text.setDepth(30);
+
+    this.tweens.add({
+      targets: text,
+      y: text.y - 80,
+      alpha: 0,
+      scale: 1.5,
+      duration: 1500,
+      ease: 'Cubic.out',
+      onComplete: () => text.destroy(),
+    });
+  }
+
   // Draw ranges and hitboxes - will be called in update for movement sync
   private drawRanges() {
     this.rangeGraphics.clear();
@@ -935,6 +1272,15 @@ export class MainScene extends Scene {
     const weaponRange = this.currentWeapon?.range || 0;
     const px = this.player.x;
     const py = this.player.y;
+
+    // Draw debug info only if debug settings are enabled
+    if (
+      !this.currentSettings.showRange &&
+      !this.currentSettings.showHitbox &&
+      this.currentSettings.cooldownVisualMode === 0
+    ) {
+      return; // Early exit if no debug features are enabled
+    }
 
     // 1. Draw Player Attack Range
     if (this.currentSettings.showRange && this.currentWeapon) {
@@ -1043,25 +1389,224 @@ export class MainScene extends Scene {
       });
     }
 
-    // 4. Draw Synergy Auras
+    // 5. Draw Boss Effects
     this.currentEnemies.forEach((enemy: any) => {
-      if (enemy.synergyActive) {
-        this.rangeGraphics.lineStyle(2, 0x00ffff, 0.4);
-        this.rangeGraphics.fillStyle(0x00ffff, 0.1);
+      const template = MONSTER_DATABASE[enemy.type];
+      if (!template?.isBoss) return;
 
-        const auraSize = Math.max(enemy.size.x, enemy.size.y) * 0.8;
-        this.rangeGraphics.fillEllipse(
+      // 5b. Enrage Visual (Red pulsing border)
+      if (enemy.isEnraged) {
+        this.rangeGraphics.lineStyle(3, 0xff0000, 0.6);
+        this.rangeGraphics.strokeCircle(
           enemy.position.x,
-          enemy.position.y + 20,
-          auraSize,
-          auraSize / 2,
+          enemy.position.y,
+          Math.max(enemy.size.x, enemy.size.y) * 0.7,
         );
-        this.rangeGraphics.strokeEllipse(
+      }
+
+      // 5c. Standard Attack Range Visualization
+      if (template.attackRange && template.id === 'frost_dragon') {
+        const range = template.attackRange;
+        const color = 0x00ffff;
+
+        // Outer dashed-like circle
+        this.rangeGraphics.lineStyle(2, color, 0.3);
+        this.rangeGraphics.strokeCircle(
           enemy.position.x,
-          enemy.position.y + 20,
-          auraSize,
-          auraSize / 2,
+          enemy.position.y,
+          range,
         );
+
+        // Inner very faint fill
+        this.rangeGraphics.fillStyle(color, 0.05);
+        this.rangeGraphics.fillCircle(
+          enemy.position.x,
+          enemy.position.y,
+          range,
+        );
+      }
+    });
+
+    // 6. Draw Glacier Fall Warning Circles & Spikes
+    this.glacierFallGraphics.clear();
+    const now = Date.now();
+    const activeGlacierIds = new Set<string>();
+
+    (this.currentGlacierFalls || []).forEach((glacier: any) => {
+      activeGlacierIds.add(glacier.id);
+      const elapsed = now - glacier.createdAt;
+      const progress = elapsed / glacier.impactTime;
+
+      if (progress < 1) {
+        // Warning circle - shrinks as impact approaches
+        const currentRadius = glacier.radius * (1.5 - progress * 0.5);
+        const alpha = 0.3 + progress * 0.4;
+
+        // Outer warning
+        this.glacierFallGraphics.lineStyle(3, 0x00aaff, alpha);
+        this.glacierFallGraphics.strokeCircle(
+          glacier.position.x,
+          glacier.position.y,
+          currentRadius,
+        );
+
+        // Inner danger zone
+        this.glacierFallGraphics.fillStyle(0x00aaff, alpha * 0.5);
+        this.glacierFallGraphics.fillCircle(
+          glacier.position.x,
+          glacier.position.y,
+          glacier.radius * progress,
+        );
+
+        // 6b. Falling Ice Spike
+        let spike = this.glacierSpikes.get(glacier.id);
+        if (!spike) {
+          spike = this.add.sprite(
+            glacier.position.x,
+            glacier.position.y - 400,
+            'ice-spike',
+          );
+          spike.setDepth(15);
+          spike.setAlpha(0);
+          this.glacierSpikes.set(glacier.id, spike);
+        }
+
+        // Falling animation based on progress
+        const startY = glacier.position.y - 400;
+        const targetY = glacier.position.y;
+        spike.y = startY + (targetY - startY) * progress;
+        spike.setAlpha(Math.min(1, progress * 2));
+        spike.setScale(1 + progress * 0.5);
+      }
+    });
+
+    // 7. Draw Orbital Laser Effects
+    this.orbitalLaserGraphics.clear();
+    (this.currentOrbitalLasers || []).forEach((laser: any) => {
+      const elapsed = now - laser.createdAt;
+      const progress = elapsed / laser.impactTime;
+
+      if (progress < 1) {
+        // Warning circle (Pulsing)
+        const pulse = (Math.sin(now / 100) + 1) / 2;
+        const alpha = 0.4 + pulse * 0.4;
+
+        this.orbitalLaserGraphics.lineStyle(4, 0xffff00, alpha);
+        this.orbitalLaserGraphics.strokeCircle(
+          laser.position.x,
+          laser.position.y,
+          laser.radius,
+        );
+
+        // Targeted focus line from top
+        this.orbitalLaserGraphics.lineStyle(1, 0xffff00, alpha * 0.5);
+        this.orbitalLaserGraphics.lineBetween(
+          laser.position.x,
+          laser.position.y - 1000,
+          laser.position.x,
+          laser.position.y,
+        );
+      }
+    });
+
+    // Handle Laser Impacts (when they disappear from state)
+    const currentLaserIds = new Set<string>(
+      (this.currentOrbitalLasers || []).map((l: any) => l.id),
+    );
+    for (const id of this.activeOrbitalLaserIds) {
+      if (!currentLaserIds.has(id)) {
+        // Find the laser data from previous frame to get position
+        const oldLaser = (this.currentOrbitalLasers || []).find(
+          (l: any) => l.id === id,
+        );
+        if (oldLaser) {
+          this.spawnOrbitalLaserBeam(oldLaser.position.x, oldLaser.position.y);
+        }
+      }
+    }
+    this.activeOrbitalLaserIds = currentLaserIds;
+
+    // 8. Handle Energy Pulse Visuals (Lunacia Overseer)
+    this.currentEnemies.forEach((enemy: any) => {
+      if (enemy.type === 'luna_overseer' && enemy.lastEnergyPulseTime) {
+        const lastTime = this.enemyLastEnergyPulseMap.get(enemy.id) || 0;
+        if (enemy.lastEnergyPulseTime > lastTime) {
+          this.spawnEnergyPulse(
+            enemy.position.x,
+            enemy.position.y,
+            MONSTER_DATABASE[enemy.type]?.energyPulseRadius || 350,
+          );
+          this.enemyLastEnergyPulseMap.set(enemy.id, enemy.lastEnergyPulseTime);
+        }
+      }
+    });
+
+    // Cleanup finished spikes and spawn impact effects
+    for (const [id, spike] of this.glacierSpikes) {
+      if (!activeGlacierIds.has(id)) {
+        // Just disappeared from state, means it impacted!
+        const impactX = spike.x;
+        const impactY = spike.y;
+
+        // Spawn impact particles
+        const emitter = this.add.particles(impactX, impactY, 'frost-particle', {
+          speed: { min: 100, max: 200 },
+          scale: { start: 1, end: 0 },
+          alpha: { start: 1, end: 0 },
+          lifespan: 500,
+          gravityY: 300,
+          blendMode: 'ADD',
+          emitting: false,
+        });
+        emitter.explode(20);
+        this.time.delayedCall(600, () => emitter.destroy());
+
+        spike.destroy();
+        this.glacierSpikes.delete(id);
+      }
+    }
+
+    // 7. Draw Monster Attack Telegraphs (Normal Attacks)
+    this.currentEnemies.forEach((enemy: any) => {
+      const sprite = this.enemies.get(enemy.id);
+
+      if (enemy.attackStartTime) {
+        const template = MONSTER_DATABASE[enemy.type];
+        const rawPreDelay = template?.attackPreDelay ?? 0.4;
+        const preDelay =
+          Math.min(rawPreDelay, enemy.attackCooldown * 0.5) * 1000;
+        const elapsed = now - enemy.attackStartTime;
+        const progress = Math.min(1, elapsed / preDelay);
+
+        const color = 0xff0000;
+        const range = enemy.attackRange;
+
+        // Draw a circle that fills up
+        this.rangeGraphics.lineStyle(2, color, 0.4);
+        this.rangeGraphics.strokeCircle(
+          enemy.position.x,
+          enemy.position.y,
+          range,
+        );
+
+        this.rangeGraphics.fillStyle(color, 0.1 + progress * 0.2);
+        this.rangeGraphics.fillCircle(
+          enemy.position.x,
+          enemy.position.y,
+          range * progress,
+        );
+
+        // Add vibration to the sprite
+        if (sprite) {
+          sprite.x = enemy.position.x + (Math.random() - 0.5) * 8 * progress;
+          sprite.y = enemy.position.y + (Math.random() - 0.5) * 8 * progress;
+        }
+      } else {
+        // Reset sprite position if not attacking (safeguard for vibration)
+        if (sprite) {
+          sprite.x = enemy.position.x;
+          sprite.y = enemy.position.y;
+        }
       }
     });
   }
@@ -1069,25 +1614,32 @@ export class MainScene extends Scene {
   update() {
     if (!this.player || !this.cursors || !this.wasd) return;
 
-    // Check for nearest NPC for hint
     const currentMap = WORLD_DATABASE[this.currentMapId];
-    if (currentMap && this.activeUI === 'None') {
-      const nearestNPC = currentMap.npcs.find((npc) => {
-        const dx = npc.position.x - this.player.x;
-        const dy = npc.position.y - this.player.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        return dist < 100;
-      });
 
-      if (nearestNPC) {
-        this.interactHint
-          .setPosition(this.player.x, this.player.y - 80)
-          .setVisible(true);
+    // Check for nearest NPC for hint (Added cooldown)
+    const now = this.time.now;
+    if (now - this.lastNpcCheckMs > 100) {
+      // Check every 100ms
+      this.lastNpcCheckMs = now;
+
+      if (currentMap && this.activeUI === 'None') {
+        const nearestNPC = currentMap.npcs.find((npc) => {
+          const dx = npc.position.x - this.player.x;
+          const dy = npc.position.y - this.player.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          return dist < 100;
+        });
+
+        if (nearestNPC) {
+          this.interactHint
+            .setPosition(this.player.x, this.player.y - 80)
+            .setVisible(true);
+        } else {
+          this.interactHint.setVisible(false);
+        }
       } else {
         this.interactHint.setVisible(false);
       }
-    } else {
-      this.interactHint.setVisible(false);
     }
 
     // Block movement if UI is open
@@ -1111,28 +1663,36 @@ export class MainScene extends Scene {
       vx /= mag;
       vy /= mag;
 
-      const baseSpeed = 4;
+      const baseSpeed = 20;
       const finalSpeed = baseSpeed * this.playerMoveSpeedMultiplier;
 
       this.player.x += vx * finalSpeed;
       this.player.y += vy * finalSpeed;
       this.player.setData('direction', Math.atan2(vy, vx));
 
-      // 1. Update Directional Visuals in real-time
+      // 1. Update Directional Visuals & Animations
       if (Math.abs(vy) > Math.abs(vx)) {
         // Vertical movement is dominant
         if (vy < 0) {
-          this.player.setTexture('player-up');
+          this.player.play('player-walk-up', true);
         } else {
-          this.player.setTexture('player-main');
+          this.player.play('player-walk-down', true);
         }
         this.player.setFlipX(false);
       } else {
         // Horizontal movement is dominant
-        this.player.setTexture('player-side');
-        this.player.setFlipX(vx > 0); // Asset faces left, so flip if moving right
+        this.player.play('player-walk-side', true);
+        this.player.setFlipX(vx > 0);
       }
-      this.player.setDisplaySize(128, 128); // Ensure size is kept after texture swap
+
+      // Ensure absolute reset of procedural effects (NO WADDLING)
+      this.player.setScale(128 / this.player.width, 128 / this.player.height);
+      this.player.setRotation(0);
+    } else {
+      // Idle State: Reset all and stop animations
+      this.player.stop();
+      this.player.setScale(128 / this.player.width, 128 / this.player.height);
+      this.player.setRotation(0);
     }
 
     // Update visualizations in real-time
@@ -1175,6 +1735,26 @@ export class MainScene extends Scene {
           const dist = Math.sqrt(dx * dx + dy * dy);
 
           if (dist < 40) {
+            // [NEW] Boss Requirement Check
+            if (portalData.requiredBossId) {
+              const state: GameState = this.registry.get('state');
+              if (
+                !state ||
+                !state.player.defeatedBosses.includes(portalData.requiredBossId)
+              ) {
+                const bossName =
+                  MONSTER_DATABASE[portalData.requiredBossId]?.name ||
+                  portalData.requiredBossId;
+
+                this.game.events.emit('showToast', {
+                  id: `portal-locked-${Date.now()}`,
+                  message: `You must defeat ${bossName} to use this portal!`,
+                });
+                this.lastPortalTimeMs = nowMs;
+                break;
+              }
+            }
+
             console.log('Portal hit!', portalData.targetMapId);
             this.game.events.emit('changeMap', {
               mapId: portalData.targetMapId,
@@ -1223,6 +1803,220 @@ export class MainScene extends Scene {
         enemy.setData('scale', 1);
         enemy.setAlpha(0.8);
       }
+
+      // Remove subtle procedural walking/breathing bobbing for all enemies as requested
+    }
+  }
+
+  private triggerTailSwipeEffect(enemy: any) {
+    // 1. Camera Shake
+    this.cameras.main.shake(200, 0.01);
+
+    // 2. Crescent Swing Visual
+    const graphics = this.add.graphics();
+    graphics.setDepth(15);
+    const angle = Phaser.Math.Angle.Between(
+      this.player.x,
+      this.player.y,
+      enemy.position.x,
+      enemy.position.y,
+    );
+
+    const template = MONSTER_DATABASE[enemy.type];
+    const range = template?.tailSwipeRange || 250;
+
+    this.tweens.addCounter({
+      from: 0,
+      to: 1,
+      duration: 300,
+      onUpdate: (tween: Phaser.Tweens.Tween) => {
+        const v = (tween as any).getValue();
+        if (v === null || v === undefined) return;
+        graphics.clear();
+        graphics.lineStyle(20 * (1 - v), 0xff8800, 0.8 * (1 - v));
+        graphics.beginPath();
+        graphics.arc(
+          enemy.position.x,
+          enemy.position.y,
+          range, // Linked to template data
+          angle - Math.PI / 4,
+          angle + Math.PI / 4,
+          false,
+        );
+        graphics.strokePath();
+      },
+      onComplete: () => graphics.destroy(),
+    });
+  }
+
+  private spawnOrbitalLaserBeam(x: number, y: number) {
+    // 1. Vertical Beam
+    const beam = this.add.rectangle(x, y - 500, 40, 1000, 0xffffff, 1);
+    beam.setDepth(20);
+    beam.setOrigin(0.5, 0.5);
+
+    this.tweens.add({
+      targets: beam,
+      alpha: 0,
+      width: 100,
+      duration: 300,
+      onComplete: () => beam.destroy(),
+    });
+
+    // 2. Camera Shake
+    this.cameras.main.shake(200, 0.02);
+  }
+
+  private spawnEnergyPulse(x: number, y: number, radius: number) {
+    const graphics = this.add.graphics();
+    graphics.setDepth(15);
+
+    this.tweens.addCounter({
+      from: 0,
+      to: radius,
+      duration: 500,
+      onUpdate: (tween: Phaser.Tweens.Tween) => {
+        const r = (tween as any).getValue();
+        graphics.clear();
+        graphics.lineStyle(10, 0x00ffff, 1 - r / radius);
+        graphics.strokeCircle(x, y, r);
+      },
+      onComplete: () => graphics.destroy(),
+    });
+
+    // Optional: Add particle burst
+  }
+
+  private createBossUI(template: any) {
+    if (this.bossUiContainer) return;
+
+    const width = 600;
+    const height = 30;
+    const x = this.cameras.main.width / 2;
+    const y = 60;
+
+    this.bossUiContainer = this.add.container(x, y);
+    this.bossUiContainer.setScrollFactor(0);
+    this.bossUiContainer.setDepth(100);
+
+    // Background Shadow
+    const bg = this.add.rectangle(0, 0, width + 4, height + 4, 0x000000, 0.7);
+
+    // Health Bar Placeholder
+    const hpBg = this.add.rectangle(0, 0, width, height, 0x330000, 1);
+    this.bossHpBar = this.add.rectangle(
+      -width / 2,
+      0,
+      width,
+      height,
+      0xff0000,
+      1,
+    );
+    this.bossHpBar.setOrigin(0, 0.5);
+
+    // Shield Bar Placeholder (overlays HP bar)
+    this.bossShieldBar = this.add.rectangle(
+      -width / 2,
+      0,
+      0,
+      height,
+      0x00ffff,
+      0.6,
+    );
+    this.bossShieldBar.setOrigin(0, 0.5);
+
+    // Boss Name
+    this.bossNameText = this.add.text(0, -height - 10, template.name, {
+      fontSize: '24px',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 4,
+      fontFamily: 'Outfit, Arial',
+    });
+    this.bossNameText.setOrigin(0.5, 0.5);
+
+    // HP Text (Current / Max)
+    this.bossHpText = this.add.text(0, 0, '', {
+      fontSize: '16px',
+      fontStyle: 'bold',
+      color: '#ffffff',
+      stroke: '#000000',
+      strokeThickness: 3,
+      fontFamily: 'Outfit, Arial',
+    });
+    this.bossHpText.setOrigin(0.5, 0.5);
+
+    this.bossUiContainer.add([
+      bg,
+      hpBg,
+      this.bossHpBar,
+      this.bossShieldBar,
+      this.bossHpText,
+      this.bossNameText,
+    ]);
+  }
+
+  private updateBossUI(enemy: any) {
+    if (!this.bossHpBar || !this.bossShieldBar) return;
+
+    const hpRatio = enemy.maxHp > 0 ? Math.max(0, enemy.hp / enemy.maxHp) : 0;
+    const shieldRatio = enemy.maxHp > 0 ? (enemy.shield || 0) / enemy.maxHp : 0;
+    const width = 600;
+
+    this.bossHpBar.width = width * hpRatio;
+    this.bossShieldBar.width = width * shieldRatio;
+    this.bossShieldBar.setVisible((enemy.shield || 0) > 0);
+
+    if (this.bossHpText) {
+      const currentHp = Math.floor(enemy.hp).toLocaleString();
+      const maxHp = Math.floor(enemy.maxHp).toLocaleString();
+      this.bossHpText.setText(`${currentHp} / ${maxHp}`);
+    }
+  }
+  private updateTexts() {
+    // Update Boss Name
+    if (
+      this.bossNameText &&
+      this.bossUiContainer &&
+      this.bossUiContainer.visible
+    ) {
+      // We can't easily get the boss template name here without storing it.
+      // However, since we cleared enemies on map change, the boss specific UI is recreated.
+      // If language changes mid-fight, the boss name might remain in old language until respawn/map change
+      // unless we store the name key.
+      // For now, let's assume boss name update is less critical or handled if we had the key.
+      // Actually, we can try to look up the boss in `this.enemies`.
+      const boss = Array.from(this.enemies.values()).find((e) =>
+        e.getData('isBoss'),
+      );
+      if (boss) {
+        const monsterId = boss.getData('monsterId');
+        if (monsterId && MONSTER_DATABASE[monsterId]) {
+          this.bossNameText.setText(MONSTER_DATABASE[monsterId].name);
+        }
+      }
+    }
+
+    // Update Level Texts
+    this.enemyLevelTexts.forEach((text, id) => {
+      const enemy = this.enemies.get(id);
+      if (enemy) {
+        const monsterId = enemy.getData('monsterId');
+        const level = enemy.getData('level');
+        if (monsterId && level) {
+          const template = MONSTER_DATABASE[monsterId];
+          if (template) {
+            const tierStr = levelToTier(level);
+            const name = template.name;
+            text.setText(`Lv.${level} ${tierStr}. ${name}`);
+          }
+        }
+      }
+    });
+
+    // Interaction Hint
+    if (this.interactHint) {
+      this.interactHint.setText('Interact [F]');
     }
   }
 }

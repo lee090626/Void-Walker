@@ -47,10 +47,10 @@ const BarContainer = styled.div`
   position: relative;
 `;
 
-const BarFill = styled.div<{ color: string; percent: number }>`
+const BarFill = styled.div<{ $color: string; $percent: number }>`
   height: 100%;
-  width: ${(props) => props.percent}%;
-  background: ${(props) => props.color};
+  width: ${(props) => props.$percent}%;
+  background: ${(props) => props.$color};
   transition: width 0.3s ease-out;
 `;
 
@@ -107,6 +107,7 @@ interface HUDProps {
   };
   onOpenStatus: () => void;
   onOpenInventory: () => void;
+  onOpenSkills: () => void;
   onOpenBestiary: () => void;
   onOpenSettings: () => void;
 }
@@ -128,7 +129,7 @@ const WeaponSlot = styled.div`
   overflow: hidden;
 `;
 
-const CooldownOverlay = styled.div<{ progress: number }>`
+const CooldownOverlay = styled.div<{ $progress: number }>`
   position: absolute;
   top: 0;
   left: 0;
@@ -137,7 +138,7 @@ const CooldownOverlay = styled.div<{ progress: number }>`
   background:
     radial-gradient(circle, transparent 40%, rgba(0, 0, 0, 0.5) 40%),
     conic-gradient(
-      rgba(255, 255, 255, 0.3) ${(props) => props.progress * 360}deg,
+      rgba(255, 255, 255, 0.3) ${(props) => props.$progress * 360}deg,
       transparent 0
     );
   pointer-events: none;
@@ -153,6 +154,7 @@ const HUD: React.FC<HUDProps> = ({
   settings,
   onOpenStatus,
   onOpenInventory,
+  onOpenSkills,
   onOpenBestiary,
   onOpenSettings,
 }) => {
@@ -171,24 +173,24 @@ const HUD: React.FC<HUDProps> = ({
     <HUDContainer>
       <TopLeft>
         <StatusBars>
-          <LevelDisplay>Lv.{player.level} Player</LevelDisplay>
+          <LevelDisplay>Level {player.level}</LevelDisplay>
 
           <BarContainer>
-            <BarFill color="#ff4b2b" percent={hpPercent} />
+            <BarFill $color="#ff4b2b" $percent={hpPercent} />
             <BarText>
               HP {player.hp} / {player.maxHp}
             </BarText>
           </BarContainer>
 
           <BarContainer>
-            <BarFill color="#2b86ff" percent={mpPercent} />
+            <BarFill $color="#2b86ff" $percent={mpPercent} />
             <BarText>
               MP {player.mp} / {player.maxMp}
             </BarText>
           </BarContainer>
 
           <BarContainer style={{ height: '6px' }}>
-            <BarFill color="#ffd700" percent={expPercent} />
+            <BarFill $color="#ffd700" $percent={expPercent} />
           </BarContainer>
 
           <div
@@ -207,7 +209,7 @@ const HUD: React.FC<HUDProps> = ({
       <WeaponSlot>
         <WeaponIcon>⚔️</WeaponIcon>
         {settings.cooldownVisualMode === 2 && cooldownProgress > 0 && (
-          <CooldownOverlay progress={cooldownProgress} />
+          <CooldownOverlay $progress={cooldownProgress} />
         )}
       </WeaponSlot>
 
@@ -216,7 +218,10 @@ const HUD: React.FC<HUDProps> = ({
           <span>[C]</span> Status
         </MenuButton>
         <MenuButton onClick={onOpenInventory}>
-          <span>[I]</span> Bags
+          <span>[I]</span> Inventory
+        </MenuButton>
+        <MenuButton onClick={onOpenSkills}>
+          <span>[K]</span> Skills
         </MenuButton>
         <MenuButton onClick={onOpenBestiary}>
           <span>[B]</span> Bestiary

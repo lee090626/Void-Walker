@@ -1,17 +1,18 @@
 import React, { useRef, useEffect, useState } from 'react';
 import styled from 'styled-components';
 import { useGameState } from '../hooks/useGameState';
-import HUD from './ui/HUD';
 import StatusWindow from './ui/StatusWindow';
 import Inventory from './ui/Inventory';
 import MonsterBook from './ui/MonsterBook';
-import QuickBar from './ui/QuickBar';
-import { ShopWindow } from './ui/ShopWindow';
-import { EnhanceWindow } from './ui/EnhanceWindow';
+import Toast from './ui/Toast';
 import PlanetSelectWindow from './ui/PlanetSelectWindow';
 import DialogWindow from './ui/DialogWindow';
 import SettingsWindow from './ui/SettingsWindow';
-import Toast from './ui/Toast';
+import HUD from './ui/HUD';
+import QuickBar from './ui/QuickBar';
+import { ShopWindow } from './ui/ShopWindow';
+import { EnhanceWindow } from './ui/EnhanceWindow';
+import SkillWindow from './ui/SkillWindow';
 import { WORLD_DATABASE } from '../types/world';
 
 const CanvasContainer = styled.div`
@@ -35,23 +36,6 @@ const MapTitle = styled.div`
   z-index: 10;
 `;
 
-const RegionName = styled.h1`
-  margin: 0;
-  color: var(--primary-color);
-  font-family: 'Outfit', sans-serif;
-  font-size: 1.8rem;
-  letter-spacing: 6px;
-  text-transform: uppercase;
-  text-shadow:
-    0 0 10px rgba(255, 215, 0, 0.5),
-    0 0 20px rgba(255, 215, 0, 0.2);
-  font-weight: 800;
-  background: linear-gradient(180deg, #fff 0%, var(--primary-color) 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-`;
-
 const CoordLabel = styled.div`
   color: rgba(255, 255, 255, 0.6);
   font-family: 'Courier New', Courier, monospace;
@@ -61,6 +45,91 @@ const CoordLabel = styled.div`
   padding: 2px 12px;
   border-radius: 10px;
   border: 1px solid rgba(255, 215, 0, 0.2);
+`;
+
+const slideIn = `
+  @keyframes slideIn {
+    0% { transform: translateX(100%); opacity: 0; }
+    100% { transform: translateX(0); opacity: 1; }
+  }
+`;
+
+const slideOut = `
+  @keyframes slideOut {
+    0% { transform: translateX(0); opacity: 1; }
+    100% { transform: translateX(100%); opacity: 0; }
+  }
+`;
+
+const MapEntryOverlay = styled.div`
+  position: absolute;
+  top: 120px;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end; /* Right aligned */
+  padding: 1.5rem 3rem 1.5rem 6rem; // Left padding for gradient fade
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    rgba(0, 0, 0, 0.8) 40%,
+    rgba(0, 0, 0, 0.9) 100%
+  );
+  pointer-events: none;
+  z-index: 100;
+
+  ${slideIn}
+  ${slideOut}
+  
+  // Enter (0.5s) -> Wait (3s) -> Exit (0.5s)
+  animation: slideIn 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards, 
+             slideOut 0.5s ease-in 3.5s forwards;
+
+  &::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background-color: var(--primary-color);
+    box-shadow: 0 0 10px var(--primary-color);
+  }
+`;
+
+const CinematicTitle = styled.h2`
+  font-family: 'Outfit', sans-serif;
+  font-size: 2.8rem;
+  font-weight: 800;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 4px;
+  margin: 0;
+  text-align: right;
+  text-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+  line-height: 1;
+`;
+
+const CinematicSubtitle = styled.div`
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.7);
+  letter-spacing: 2px;
+  margin-top: 8px;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+`;
+
+const RegionLevel = styled.span`
+  color: var(--primary-color);
+  font-weight: bold;
+  font-family: 'Courier New', monospace;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 `;
 
 const GameView: React.FC = () => {
@@ -76,9 +145,12 @@ const GameView: React.FC = () => {
     updateAttack,
     updateStats,
     allocateStat,
+    upgradeSkill,
     triggerAttack,
     useItem,
+    unEquip,
     resetStats,
+    resetSkills,
     buyItem,
     sellItem,
     closeUI,
@@ -92,6 +164,7 @@ const GameView: React.FC = () => {
     toggleSetting,
     handleOpenDialog,
     handleCloseDialog,
+    handleNextDialog,
     saveGame,
     loadGame,
     resetGame,
@@ -136,7 +209,15 @@ const GameView: React.FC = () => {
     if (phaserGame) {
       phaserGame.events.emit('updateState', state);
     }
-  }, [phaserGame, state]);
+  }, [
+    phaserGame,
+    state.currentMapId,
+    state.player.position,
+    state.player.hp,
+    state.player.mp,
+    state.enemies,
+    state.droppedItems,
+  ]);
 
   // Listen for map change from Phaser
   useEffect(() => {
@@ -172,6 +253,9 @@ const GameView: React.FC = () => {
         setUI(state.activeUI === 'Inventory' ? 'None' : 'Inventory');
       if (key === 'b')
         setUI(state.activeUI === 'MonsterBook' ? 'None' : 'MonsterBook');
+      if (key === 'k')
+        // Added K key binding
+        setUI(state.activeUI === 'Skills' ? 'None' : 'Skills');
       if (key === 'o')
         setUI(state.activeUI === 'Settings' ? 'None' : 'Settings');
       if (key === 'f') handleInteraction();
@@ -221,7 +305,15 @@ const GameView: React.FC = () => {
       updateStats();
 
       const currentMap = WORLD_DATABASE[stateRef.current.currentMapId];
-      if (currentMap.canSpawnMonsters && Math.random() < 0.02) spawnEnemy();
+      if (currentMap) {
+        const now = Date.now();
+        const lastSpawn = stateRef.current.lastSpawnTime || 0;
+        const spawnIntervalMs = (currentMap.spawnInterval || 5) * 1000;
+
+        if (currentMap.canSpawnMonsters && now - lastSpawn >= spawnIntervalMs) {
+          spawnEnemy();
+        }
+      }
 
       requestRef.current = requestAnimationFrame(animate);
     };
@@ -244,7 +336,6 @@ const GameView: React.FC = () => {
     <CanvasContainer>
       <div ref={gameContainerRef} style={{ width: '100%', height: '100%' }} />
       <MapTitle>
-        <RegionName>{WORLD_DATABASE[state.currentMapId].name}</RegionName>
         {state.settings.showCoordinates && (
           <CoordLabel>
             X: {Math.round(state.player.position.x)} Y:{' '}
@@ -253,11 +344,22 @@ const GameView: React.FC = () => {
         )}
       </MapTitle>
 
+      {/* Cinematic Map Entry Overlay (Side Banner) */}
+      <MapEntryOverlay key={state.currentMapId}>
+        <CinematicTitle>
+          {WORLD_DATABASE[state.currentMapId]?.name || 'Unknown Region'}
+        </CinematicTitle>
+        <CinematicSubtitle>
+          Entering Zone<RegionLevel>Area</RegionLevel>
+        </CinematicSubtitle>
+      </MapEntryOverlay>
+
       <HUD
         player={state.player}
         settings={state.settings}
         onOpenStatus={() => setUI('Status')}
         onOpenInventory={() => setUI('Inventory')}
+        onOpenSkills={() => setUI('Skills')}
         onOpenBestiary={() => setUI('MonsterBook')}
         onOpenSettings={() => setUI('Settings')}
       />
@@ -273,20 +375,26 @@ const GameView: React.FC = () => {
           player={state.player}
           onAllocate={allocateStat}
           onReset={resetStats}
+          onUnequip={unEquip}
           onClose={closeUI}
         />
       )}
       {state.activeUI === 'Inventory' && (
         <Inventory
           items={state.player.inventory}
-          equippedWeaponId={state.player.equipment.weapon?.id}
-          equippedArmorId={state.player.equipment.armor?.id}
+          equipment={state.player.equipment}
           onUse={useItem}
+          onUnEquip={unEquip}
           onClose={closeUI}
         />
       )}
       {state.activeUI === 'MonsterBook' && (
-        <MonsterBook bestiary={state.bestiary} onClose={closeUI} />
+        <MonsterBook
+          bestiary={state.bestiary}
+          acquiredEquipment={state.player.acquiredEquipment}
+          dropRateSkillLevel={state.player.skills.dropRate || 0}
+          onClose={closeUI}
+        />
       )}
       {state.activeUI === 'Shop' && (
         <ShopWindow
@@ -305,6 +413,7 @@ const GameView: React.FC = () => {
       )}
       {state.activeUI === 'PlanetSelect' && (
         <PlanetSelectWindow
+          defeatedBosses={state.player.defeatedBosses}
           onSelect={(planetId) => {
             handleChangeMap({
               mapId: planetId,
@@ -320,6 +429,7 @@ const GameView: React.FC = () => {
         <DialogWindow
           dialog={state.currentDialog}
           onClose={handleCloseDialog}
+          onNext={handleNextDialog}
           onAction={(action) => setUI(action as any)}
         />
       )}
@@ -331,6 +441,14 @@ const GameView: React.FC = () => {
           onSave={saveGame}
           onLoad={loadGame}
           onReset={resetGame}
+        />
+      )}
+      {state.activeUI === 'Skills' && (
+        <SkillWindow
+          player={state.player}
+          onClose={closeUI}
+          onUpgradeSkill={upgradeSkill}
+          onResetSkills={resetSkills}
         />
       )}
 

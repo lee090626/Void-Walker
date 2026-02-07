@@ -5,6 +5,7 @@ import type { GameState } from '../../types/game';
 interface DialogWindowProps {
   dialog: GameState['currentDialog'];
   onClose: () => void;
+  onNext?: () => void;
   onAction?: (action: string) => void; // For future actions like "Open Shop"
 }
 
@@ -80,9 +81,15 @@ const ButtonGroup = styled.div`
 const DialogWindow: React.FC<DialogWindowProps> = ({
   dialog,
   onClose,
+  onNext,
   onAction,
 }) => {
   if (!dialog) return null;
+
+  const hasNext =
+    dialog.messages &&
+    dialog.messageIndex !== undefined &&
+    dialog.messageIndex < dialog.messages.length - 1;
 
   return (
     <DialogOverlay>
@@ -94,7 +101,9 @@ const DialogWindow: React.FC<DialogWindowProps> = ({
             {dialog.actionLabel}
           </ActionButton>
         )}
-        <NextButton onClick={onClose}>대화 종료</NextButton>
+        <NextButton onClick={hasNext && onNext ? onNext : onClose}>
+          {hasNext ? 'Next' : 'End'}
+        </NextButton>
       </ButtonGroup>
     </DialogOverlay>
   );

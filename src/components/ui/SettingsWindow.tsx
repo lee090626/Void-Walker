@@ -133,20 +133,17 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
   const getModeLabel = (mode: number) => {
     switch (mode) {
       case 1:
-        return '1: 발밑 게이지';
+        return 'At Feet';
       case 2:
-        return '2: HUD 아이콘';
+        return 'On HUD';
       case 3:
-        return '3: 캐릭터 반짝임';
+        return 'Glow Effect';
       default:
-        return '0: 끄기';
+        return 'Off';
     }
   };
 
   const handleCycleMode = () => {
-    // This is a bit tricky because onToggle expects a key and toggles boolean.
-    // However, for this specific use case, we might need a custom handler or
-    // just use onToggle if the parent's toggleSetting handles numbers.
     onToggle('cooldownVisualMode');
   };
 
@@ -154,10 +151,14 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
     <Overlay onClick={onClose}>
       <Window onClick={(e) => e.stopPropagation()}>
         <CloseButton onClick={onClose}>&times;</CloseButton>
-        <Title>Settings</Title>
+        <Title>{'Settings'}</Title>
 
         <SettingRow>
-          <SettingLabel>공격 범위 표시</SettingLabel>
+          <SettingLabel>{'Language'}</SettingLabel>
+        </SettingRow>
+
+        <SettingRow>
+          <SettingLabel>{'Show Attack Range'}</SettingLabel>
           <ToggleButton
             active={settings.showRange}
             onClick={() => onToggle('showRange')}
@@ -167,7 +168,7 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
         </SettingRow>
 
         <SettingRow>
-          <SettingLabel>몬스터 히트박스 표시</SettingLabel>
+          <SettingLabel>{'Show Hitboxes'}</SettingLabel>
           <ToggleButton
             active={settings.showHitbox}
             onClick={() => onToggle('showHitbox')}
@@ -177,7 +178,7 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
         </SettingRow>
 
         <SettingRow>
-          <SettingLabel>쿨타임 표시 방식</SettingLabel>
+          <SettingLabel>{'Cooldown Visual'}</SettingLabel>
           <ToggleButton
             active={settings.cooldownVisualMode > 0}
             onClick={handleCycleMode}
@@ -187,7 +188,7 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
         </SettingRow>
 
         <SettingRow>
-          <SettingLabel>좌표 표시</SettingLabel>
+          <SettingLabel>{'Show Coordinates'}</SettingLabel>
           <ToggleButton
             active={settings.showCoordinates}
             onClick={() => onToggle('showCoordinates')}
@@ -205,15 +206,15 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
           }}
         >
           <ActionButton variant="success" onClick={onSave}>
-            데이터 저장하기
+            {'Save Game'}
           </ActionButton>
-          <ActionButton onClick={onLoad}>데이터 불러오기</ActionButton>
+          <ActionButton onClick={onLoad}>{'Load Game'}</ActionButton>
           <ActionButton
             variant="danger"
             onClick={onReset}
             style={{ marginTop: '20px' }}
           >
-            데이터 초기화
+            {'Reset Game'}
           </ActionButton>
         </div>
 
@@ -225,7 +226,7 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
             textAlign: 'center',
           }}
         >
-          단축키: I (인벤토리), C (스테이터스), B (도감), O (설정)
+          {'Shortcuts'}
         </div>
       </Window>
     </Overlay>

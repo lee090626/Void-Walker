@@ -3,6 +3,7 @@ import styled from 'styled-components';
 import { ITEM_DATABASE } from '../../types/item';
 
 import type { InventoryItem } from '../../types/game';
+import type { Item, Weapon, Armor, Helmet, Potion } from '../../types/item';
 
 const Overlay = styled.div`
   position: absolute;
@@ -186,19 +187,23 @@ const CloseButton = styled.button`
 
 interface InventoryProps {
   items: InventoryItem[];
-  equippedWeaponId?: string;
-  equippedArmorId?: string;
+  equipment: {
+    weapon: (Weapon & { enhanceLevel?: number }) | null;
+    armor: (Armor & { enhanceLevel?: number }) | null;
+    helmet: (Helmet & { enhanceLevel?: number }) | null;
+  };
   onUse: (index: number) => void;
+  onUnEquip: (type: 'Weapon' | 'Armor' | 'Helmet') => void;
   onClose: () => void;
 }
 
-type TabType = 'All' | 'Equipment' | 'Potion' | 'Material';
+type TabType = 'All' | 'Equipment' | 'Potions' | 'Materials';
 
 const Inventory: React.FC<InventoryProps> = ({
   items,
-  equippedWeaponId,
-  equippedArmorId,
+  equipment,
   onUse,
+  onUnEquip,
   onClose,
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('All');
@@ -214,7 +219,13 @@ const Inventory: React.FC<InventoryProps> = ({
       if (!item) return false;
       if (activeTab === 'All') return true;
       if (activeTab === 'Equipment')
-        return item.type === 'Weapon' || item.type === 'Armor';
+        return (
+          item.type === 'Weapon' ||
+          item.type === 'Armor' ||
+          item.type === 'Helmet'
+        );
+      if (activeTab === 'Potions') return item.type === 'Potion';
+      if (activeTab === 'Materials') return item.type === 'Material';
       return item.type === activeTab;
     });
 
@@ -226,37 +237,72 @@ const Inventory: React.FC<InventoryProps> = ({
     setSelectedInFilter(null);
   };
 
+  const getItemTooltip = (item: Item, invItem: InventoryItem): string => {
+    let tooltip = `${item.name}\n${item.description}`;
+
+    if (item.type === 'Weapon') {
+      const weapon = item as Weapon;
+      tooltip += `\n\nATK: ${weapon.atk}`;
+      tooltip += `\nRange: ${weapon.range}`;
+      tooltip += `\nSpeed: ${weapon.speed}`;
+      tooltip += `\nType: ${weapon.weaponType}`;
+    } else if (item.type === 'Armor' || item.type === 'Helmet') {
+      const armor = item as Armor;
+      tooltip += `\n\nDEF: ${armor.def}`;
+    } else if (item.type === 'Potion') {
+      const potion = item as Potion;
+      if (potion.hpRestore) tooltip += `\n\nHP Restore: ${potion.hpRestore}`;
+      if (potion.mpRestore) tooltip += `\nMP Restore: ${potion.mpRestore}`;
+    }
+
+    if (invItem.enhanceLevel && invItem.enhanceLevel > 0) {
+      if (item.type === 'Weapon') {
+        const bonus = (item as Weapon).atk * invItem.enhanceLevel * 0.1;
+        tooltip += `\nEnhance: +${invItem.enhanceLevel} (ATK +${bonus.toFixed(1)})`;
+      } else if (item.type === 'Armor' || item.type === 'Helmet') {
+        const bonus = (item as Armor).def * invItem.enhanceLevel * 0.1;
+        tooltip += `\nEnhance: +${invItem.enhanceLevel} (DEF +${bonus.toFixed(1)})`;
+      } else {
+        tooltip += `\nEnhance: +${invItem.enhanceLevel}`;
+      }
+    }
+
+    tooltip += `\nPrice: ${item.price} Gold`;
+
+    return tooltip;
+  };
+
   return (
     <Overlay onClick={onClose}>
       <Window onClick={(e) => e.stopPropagation()}>
         <CloseButton onClick={onClose}>&times;</CloseButton>
-        <Title>Inventory</Title>
+        <Title>{'Inventory'}</Title>
 
         <TabBar>
           <Tab
             active={activeTab === 'All'}
             onClick={() => handleTabChange('All')}
           >
-            전체
+            {'All'}
           </Tab>
           <Tab
             active={activeTab === 'Equipment'}
             onClick={() => handleTabChange('Equipment')}
           >
-            장비
+            {'Equipment'}
           </Tab>
 
           <Tab
-            active={activeTab === 'Potion'}
-            onClick={() => handleTabChange('Potion')}
+            active={activeTab === 'Potions'}
+            onClick={() => handleTabChange('Potions')}
           >
-            소모품
+            {'Potions'}
           </Tab>
           <Tab
-            active={activeTab === 'Material'}
-            onClick={() => handleTabChange('Material')}
+            active={activeTab === 'Materials'}
+            onClick={() => handleTabChange('Materials')}
           >
-            재료
+            {'Materials'}
           </Tab>
         </TabBar>
 
@@ -266,6 +312,7 @@ const Inventory: React.FC<InventoryProps> = ({
               key={`${invItem.itemId}-${originalIndex}`}
               active={selectedInFilter === filterIndex}
               onClick={() => setSelectedInFilter(filterIndex)}
+              title={item ? getItemTooltip(item, invItem) : ''}
             >
               {item && (
                 <ItemIcon
@@ -276,22 +323,29 @@ const Inventory: React.FC<InventoryProps> = ({
                       ? '#ffd700'
                       : item.type === 'Armor'
                         ? '#00ced1'
-                        : item.type === 'Potion'
-                          ? '#ff4b2b'
-                          : '#aaa'
+                        : item.type === 'Helmet'
+                          ? '#ff6b6b'
+                          : item.type === 'Potion'
+                            ? '#ff4b2b'
+                            : '#aaa'
                   }
                 />
               )}
               {invItem.quantity > 1 && (
                 <QuantityBadge>x{invItem.quantity}</QuantityBadge>
               )}
-              {invItem.enhanceLevel && invItem.enhanceLevel > 0 && (
+              {Number(invItem.enhanceLevel) > 0 && (
                 <EnhanceBadge>+{invItem.enhanceLevel}</EnhanceBadge>
               )}
-              {((invItem.itemId === equippedWeaponId &&
+              {((equipment.weapon &&
+                invItem.itemId === equipment.weapon.id &&
                 item?.type === 'Weapon') ||
-                (invItem.itemId === equippedArmorId &&
-                  item?.type === 'Armor')) && (
+                (equipment.armor &&
+                  invItem.itemId === equipment.armor.id &&
+                  item?.type === 'Armor') ||
+                (equipment.helmet &&
+                  invItem.itemId === equipment.helmet.id &&
+                  item?.type === 'Helmet')) && (
                 <div
                   style={{
                     position: 'absolute',
@@ -333,9 +387,11 @@ const Inventory: React.FC<InventoryProps> = ({
                     marginBottom: '5px',
                   }}
                 >
-                  공격력 (ATK) +
-                  {(selectedData.item as any).atk +
-                    (selectedData.invItem.enhanceLevel || 0) * 3}
+                  {'ATK'} +
+                  {(
+                    (selectedData.item as any).atk *
+                    (1 + (selectedData.invItem.enhanceLevel || 0) * 0.1)
+                  ).toFixed(1)}
                   <span
                     style={{
                       fontSize: '0.8rem',
@@ -343,22 +399,33 @@ const Inventory: React.FC<InventoryProps> = ({
                       marginLeft: '5px',
                     }}
                   >
-                    (기본 {(selectedData.item as any).atk} + 강화{' '}
-                    {(selectedData.invItem.enhanceLevel || 0) * 3})
+                    ({'Base'} {(selectedData.item as any).atk} + {'Enhance'}{' '}
+                    {(
+                      (selectedData.item as any).atk *
+                      (selectedData.invItem.enhanceLevel || 0) *
+                      0.1
+                    ).toFixed(1)}
+                    )
                   </span>
                 </div>
               )}
-              {selectedData.item.type === 'Armor' && (
+              {(selectedData.item.type === 'Armor' ||
+                selectedData.item.type === 'Helmet') && (
                 <div
                   style={{
-                    color: '#00ced1',
+                    color:
+                      selectedData.item.type === 'Armor'
+                        ? '#00ced1'
+                        : '#ff6b6b',
                     fontWeight: 'bold',
                     marginBottom: '5px',
                   }}
                 >
-                  방어력 (DEF) +
-                  {(selectedData.item as any).def +
-                    (selectedData.invItem.enhanceLevel || 0) * 2}
+                  {'DEF'} +
+                  {(
+                    (selectedData.item as any).def *
+                    (1 + (selectedData.invItem.enhanceLevel || 0) * 0.1)
+                  ).toFixed(1)}
                   <span
                     style={{
                       fontSize: '0.8rem',
@@ -366,8 +433,13 @@ const Inventory: React.FC<InventoryProps> = ({
                       marginLeft: '5px',
                     }}
                   >
-                    (기본 {(selectedData.item as any).def} + 강화{' '}
-                    {(selectedData.invItem.enhanceLevel || 0) * 2})
+                    ({'Base'} {(selectedData.item as any).def} + {'Enhance'}{' '}
+                    {(
+                      (selectedData.item as any).def *
+                      (selectedData.invItem.enhanceLevel || 0) *
+                      0.1
+                    ).toFixed(1)}
+                    )
                   </span>
                 </div>
               )}
@@ -376,25 +448,68 @@ const Inventory: React.FC<InventoryProps> = ({
               <div
                 style={{ fontSize: '0.8rem', marginTop: '5px', color: '#999' }}
               >
-                가격: {selectedData.item.price} gold | 수량:{' '}
+                {'Price'}: {selectedData.item.price} Gold | {'Quantity'}:{' '}
                 {selectedData.invItem.quantity}
               </div>
-              <ActionButton
-                onClick={() => {
-                  onUse(selectedData.originalIndex);
-                }}
-              >
-                {selectedData.item.type === 'Weapon' ||
-                selectedData.item.type === 'Armor'
-                  ? '장착하기'
-                  : '사용하기'}
-              </ActionButton>
+              {selectedData.item.type === 'Weapon' ||
+              selectedData.item.type === 'Armor' ||
+              selectedData.item.type === 'Helmet' ? (
+                (() => {
+                  const type = selectedData.item.type as
+                    | 'Weapon'
+                    | 'Armor'
+                    | 'Helmet';
+                  const equippedInSlot =
+                    type === 'Weapon'
+                      ? equipment.weapon
+                      : type === 'Armor'
+                        ? equipment.armor
+                        : equipment.helmet;
+
+                  // Is the selected item actually equipped?
+                  const isThisEquipped =
+                    equippedInSlot &&
+                    equippedInSlot.id === selectedData.item.id &&
+                    (equippedInSlot.enhanceLevel || 0) ===
+                      (selectedData.invItem.enhanceLevel || 0);
+
+                  if (isThisEquipped) {
+                    return (
+                      <ActionButton onClick={() => onUnEquip(type)}>
+                        {'Unequip'}
+                      </ActionButton>
+                    );
+                  } else if (equippedInSlot) {
+                    // Slot is occupied by something else
+                    return (
+                      <ActionButton
+                        disabled={true}
+                        style={{ opacity: 0.5, cursor: 'not-allowed' }}
+                      >
+                        {'Cannot Equip'}
+                      </ActionButton>
+                    );
+                  } else {
+                    return (
+                      <ActionButton
+                        onClick={() => onUse(selectedData.originalIndex)}
+                      >
+                        {'Equip'}
+                      </ActionButton>
+                    );
+                  }
+                })()
+              ) : (
+                <ActionButton onClick={() => onUse(selectedData.originalIndex)}>
+                  {'Use'}
+                </ActionButton>
+              )}
             </>
           ) : (
             <div
               style={{ color: '#666', textAlign: 'center', paddingTop: '40px' }}
             >
-              아이템을 선택하여 상세 정보를 확인하세요
+              {'Select an item to see details'}
             </div>
           )}
         </DetailPanel>

@@ -1,5 +1,6 @@
 import React from 'react';
 import styled from 'styled-components';
+import { MONSTER_DATABASE } from '../../types/monster';
 
 const Overlay = styled.div`
   position: absolute;
@@ -44,7 +45,7 @@ const PlanetGrid = styled.div`
   margin-top: 10px;
 `;
 
-const PlanetCard = styled.div`
+const PlanetCard = styled.div<{ isLocked?: boolean }>`
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
@@ -57,11 +58,29 @@ const PlanetCard = styled.div`
   gap: 10px;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: #5080ff;
+    background: ${(props) =>
+      props.isLocked ? 'rgba(255, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.1)'};
+    border-color: ${(props) => (props.isLocked ? '#ff5050' : '#5080ff')};
     transform: translateY(-5px);
     box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
   }
+  opacity: ${(props) => (props.isLocked ? 0.6 : 1)};
+  cursor: ${(props) => (props.isLocked ? 'not-allowed' : 'pointer')};
+`;
+
+const LockIcon = styled.div`
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  color: #ff5050;
+  font-size: 1.2rem;
+`;
+
+const RequiredBoss = styled.div`
+  font-size: 0.8rem;
+  color: #ff8080;
+  margin-top: 5px;
+  font-weight: bold;
 `;
 
 const PlanetIcon = styled.div<{ bg: string }>`
@@ -102,53 +121,80 @@ const CloseButton = styled.button`
 interface PlanetSelectWindowProps {
   onSelect: (planetId: string) => void;
   onClose: () => void;
+  defeatedBosses: string[];
 }
 
 const GALACTIC_PLANETS = [
   {
-    id: 'proxima_luna',
-    name: '프록시마 루나',
-    desc: '고대 유적이 잠든 황량한 달',
+    id: 'proxima_station',
+    name: 'Proxima Luna',
+    desc: 'Desolate moon where ancient ruins lie',
     color: 'radial-gradient(circle at 30% 30%, #9e9e9e, #424242)',
+    requiredBossId: 'frost_dragon',
   },
   {
     id: 'aetheria',
-    name: '에테리아',
-    desc: '구름 위에 떠 있는 환상적인 인공 행성',
+    name: 'Aetheria',
+    desc: 'A fantastic artificial planet floating above the clouds',
     color: 'radial-gradient(circle at 30% 30%, #4fc3f7, #0288d1)',
+    requiredBossId: 'luna_overseer',
   },
   {
     id: 'ignis_prime',
-    name: '이그니스 프라임',
-    desc: '끊임없이 용암이 분출하는 화산 행성',
+    name: 'Ignis Prime',
+    desc: 'Volcanic planet with constant lava eruptions',
     color: 'radial-gradient(circle at 30% 30%, #f44336, #b71c1c)',
+    requiredBossId: 'celestial_architect',
   },
   {
     id: 'xylos',
-    name: '자일로스',
-    desc: '맹독성 포자와 거대 식물이 가득한 정글',
+    name: 'Xylos',
+    desc: 'Jungle filled with toxic spores and giant plants',
     color: 'radial-gradient(circle at 30% 30%, #9c27b0, #4a148c)',
-  }
+    requiredBossId: 'ignis_overlord',
+  },
 ];
 
 const PlanetSelectWindow: React.FC<PlanetSelectWindowProps> = ({
   onSelect,
   onClose,
+  defeatedBosses,
 }) => {
   return (
     <Overlay onClick={(e) => e.target === e.currentTarget && onClose()}>
       <Window>
-        <Title>은하 항로 선택</Title>
+        <Title>{'Galactic Travel'}</Title>
         <PlanetGrid>
-          {GALACTIC_PLANETS.map((planet) => (
-            <PlanetCard key={planet.id} onClick={() => onSelect(planet.id)}>
-              <PlanetIcon bg={planet.color} />
-              <PlanetName>{planet.name}</PlanetName>
-              <PlanetDesc>{planet.desc}</PlanetDesc>
-            </PlanetCard>
-          ))}
+          {GALACTIC_PLANETS.map((planet) => {
+            const isLocked =
+              planet.requiredBossId &&
+              !defeatedBosses.includes(planet.requiredBossId);
+            const bossName = planet.requiredBossId
+              ? MONSTER_DATABASE[planet.requiredBossId]?.name ||
+                planet.requiredBossId
+              : '';
+
+            return (
+              <PlanetCard
+                key={planet.id}
+                onClick={() => !isLocked && onSelect(planet.id)}
+                isLocked={!!isLocked}
+                style={{ position: 'relative' }}
+              >
+                {isLocked && <LockIcon>🔒</LockIcon>}
+                <PlanetIcon bg={planet.color} />
+                <PlanetName>{planet.name}</PlanetName>
+                <PlanetDesc>{planet.desc}</PlanetDesc>
+                {isLocked && (
+                  <RequiredBoss>
+                    {`Defeat ${bossName} first to access this planet.`}
+                  </RequiredBoss>
+                )}
+              </PlanetCard>
+            );
+          })}
         </PlanetGrid>
-        <CloseButton onClick={onClose}>항로 설정 취소</CloseButton>
+        <CloseButton onClick={onClose}>{'Cancel'}</CloseButton>
       </Window>
     </Overlay>
   );

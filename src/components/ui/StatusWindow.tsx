@@ -1,6 +1,8 @@
 import React from 'react';
 import styled, { keyframes } from 'styled-components';
 import type { Player } from '../../types/game';
+import StatTooltip from './StatTooltip';
+import { calculateStatBreakdown } from '../../utils/statCalculator';
 
 const fadeIn = keyframes`
   from { opacity: 0; transform: translate(-50%, -45%); }
@@ -18,7 +20,7 @@ const WindowOverlay = styled.div`
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 520px;
+  width: 950px;
   background: linear-gradient(
     135deg,
     rgba(20, 20, 20, 0.9) 0%,
@@ -71,8 +73,9 @@ const Title = styled.h2`
 
 const ContentLayout = styled.div`
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1.2fr 1fr;
   gap: 25px;
+  align-items: start;
 `;
 
 const Section = styled.div`
@@ -221,6 +224,94 @@ const DetailValue = styled.span`
   font-weight: 600;
 `;
 
+const EquippedCard = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 12px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+`;
+
+const EquipSlot = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+`;
+
+const EquipIconWrapper = styled.div`
+  position: relative;
+  width: 64px;
+  height: 64px;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 8px;
+  border: 1px solid #444;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+`;
+
+const EquipIcon = styled.img<{ $rarity: string }>`
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 0 2px ${(props) => props.$rarity});
+`;
+
+const EmptyIcon = styled.div`
+  width: 100%;
+  height: 100%;
+  background:
+    linear-gradient(
+      45deg,
+      transparent 45%,
+      rgba(255, 255, 255, 0.1) 49%,
+      transparent 51%
+    ),
+    linear-gradient(
+      -45deg,
+      transparent 45%,
+      rgba(255, 255, 255, 0.1) 49%,
+      transparent 51%
+    );
+`;
+
+const EquipEnhance = styled.div`
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: #000;
+  color: #ffd700;
+  border: 1px solid #ffd700;
+  font-size: 0.6rem;
+  padding: 1px 3px;
+  border-radius: 4px;
+  font-weight: bold;
+`;
+
+const EquipInfo = styled.div`
+  display: flex;
+  flex-direction: column;
+`;
+
+const EquipLabel = styled.span`
+  font-size: 0.75rem;
+  color: #888;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+`;
+
+const EquipName = styled.span<{ $active: boolean }>`
+  font-size: 1rem;
+  font-weight: bold;
+  color: ${(props) => (props.$active ? '#fff' : '#555')};
+`;
+
 const Footer = styled.div`
   margin-top: 25px;
   display: flex;
@@ -298,10 +389,28 @@ const CloseButton = styled.button`
   }
 `;
 
+const UnequipButton = styled.button`
+  background: rgba(255, 68, 68, 0.8);
+  border: none;
+  border-radius: 4px;
+  color: white;
+  padding: 2px 6px;
+  font-size: 0.7rem;
+  cursor: pointer;
+  margin-top: 4px;
+  transition: all 0.2s;
+
+  &:hover {
+    background: rgba(255, 68, 68, 1);
+    transform: scale(1.05);
+  }
+`;
+
 interface StatusWindowProps {
   player: Player;
   onAllocate: (statName: keyof Player['stats'], amount: number) => void;
   onReset: () => void;
+  onUnequip: (slot: 'Weapon' | 'Armor' | 'Helmet') => void;
   onClose: () => void;
 }
 
@@ -309,36 +418,39 @@ const StatusWindow: React.FC<StatusWindowProps> = ({
   player,
   onAllocate,
   onReset,
+  onUnequip,
   onClose,
 }) => {
   const [hoveredStat, setHoveredStat] = React.useState<
     keyof Player['stats'] | null
   >(null);
 
-  const stats: (keyof Player['stats'])[] = ['str', 'dex', 'int', 'vit'];
+  const stats: (keyof Player['stats'])[] = ['str', 'dex', 'int', 'vit', 'def'];
   const statLabels: Record<string, string> = {
-    str: '근력 (STR)',
-    dex: '민첩 (DEX)',
-    int: '지능 (INT)',
-    vit: '체력 (VIT)',
+    str: 'STR',
+    dex: 'DEX',
+    int: 'INT',
+    vit: 'VIT',
+    def: 'DEF',
   };
 
   const statDescriptions: Record<string, string> = {
-    str: '물리 공격력을 대폭 상승시킵니다. 물리적인 힘의 척도입니다.',
-    dex: '이동 속도와 공격 속도, 회피율을 상승시킵니다. 정교한 움직임을 가능케 합니다.',
-    int: '마법 공격력과 최대 마력(MP)을 상승시킵니다. 정신적인 힘의 척도입니다.',
-    vit: '최대 체력(HP)과 방어력을 상승시킵니다. 생존력과 인내심을 강화합니다.',
+    str: 'Increases Attack Power and physical damage.',
+    dex: 'Increases Critical Rate, Speed, and Evasion.',
+    int: 'Increases Magic Power and Max Mana.',
+    vit: 'Increases Max HP and Health Regeneration.',
+    def: 'Increases Defense and reduces incoming damage.',
   };
 
   return (
     <WindowOverlay>
       <Header>
-        <Title>Character Status</Title>
+        <Title>{'Status'}</Title>
       </Header>
 
       <ContentLayout>
         <Section>
-          <SectionTitle>Base Stats</SectionTitle>
+          <SectionTitle>{'Base Stats'}</SectionTitle>
           {stats.map((stat) => (
             <StatRow
               key={stat}
@@ -366,42 +478,257 @@ const StatusWindow: React.FC<StatusWindowProps> = ({
               </ButtonGroup>
             </StatRow>
           ))}
+          <PointsBadge style={{ marginTop: 'auto' }}>
+            {'Available Points'} <span>{player.statPoints}</span>
+          </PointsBadge>
         </Section>
 
         <Section>
-          <SectionTitle>Combat Details</SectionTitle>
+          <SectionTitle>{'Combat Details'}</SectionTitle>
           <DetailCard>
-            <DetailRow>
-              <DetailLabel>공격력 (ATK)</DetailLabel>
-              <DetailValue>{player.atk}</DetailValue>
-            </DetailRow>
-            <DetailRow>
-              <DetailLabel>방어력 (DEF)</DetailLabel>
-              <DetailValue>{player.def}</DetailValue>
-            </DetailRow>
-            <DetailRow>
-              <DetailLabel>공격 속도 (ASPD)</DetailLabel>
-              <DetailValue>
-                {(0.5 * (1 + Math.log(player.stats.dex) * 2.0)).toFixed(2)}/s
-              </DetailValue>
-            </DetailRow>
-            <DetailRow>
-              <DetailLabel>이동 속도 (SPD)</DetailLabel>
-              <DetailValue>{player.speed.toFixed(0)}</DetailValue>
-            </DetailRow>
-            <DetailRow>
-              <DetailLabel>최대 체력 (HP)</DetailLabel>
-              <DetailValue>{player.maxHp}</DetailValue>
-            </DetailRow>
-            <DetailRow>
-              <DetailLabel>최대 마력 (MP)</DetailLabel>
-              <DetailValue>{player.maxMp}</DetailValue>
-            </DetailRow>
+            {(() => {
+              const statBreakdown = calculateStatBreakdown(player);
+
+              return (
+                <>
+                  <DetailRow>
+                    <DetailLabel>
+                      {'ATK'}
+                      <StatTooltip
+                        statName="ATK"
+                        breakdown={statBreakdown.atk}
+                        includePercentage
+                      />
+                    </DetailLabel>
+                    <DetailValue>
+                      {statBreakdown.atk.total.toFixed(1)}
+                    </DetailValue>
+                  </DetailRow>
+                  <DetailRow>
+                    <DetailLabel>
+                      {'DEF'}
+                      <StatTooltip
+                        statName="DEF"
+                        breakdown={statBreakdown.def}
+                        includePercentage
+                      />
+                    </DetailLabel>
+                    <DetailValue>
+                      {statBreakdown.def.total.toFixed(1)}
+                    </DetailValue>
+                  </DetailRow>
+                  <DetailRow>
+                    <DetailLabel>
+                      {'SPD'}
+                      <StatTooltip
+                        statName="SPD"
+                        breakdown={statBreakdown.speed}
+                        includePercentage
+                      />
+                    </DetailLabel>
+                    <DetailValue>
+                      {statBreakdown.speed.total.toFixed(0)}
+                    </DetailValue>
+                  </DetailRow>
+                  <DetailRow>
+                    <DetailLabel>
+                      {'Max HP'}
+                      <StatTooltip
+                        statName="Max HP"
+                        breakdown={statBreakdown.maxHp}
+                        includePercentage
+                      />
+                    </DetailLabel>
+                    <DetailValue>{statBreakdown.maxHp.total}</DetailValue>
+                  </DetailRow>
+                  <DetailRow>
+                    <DetailLabel>
+                      {'Max MP'}
+                      <StatTooltip
+                        statName="Max MP"
+                        breakdown={statBreakdown.maxMp}
+                        includePercentage
+                      />
+                    </DetailLabel>
+                    <DetailValue>{statBreakdown.maxMp.total}</DetailValue>
+                  </DetailRow>
+                </>
+              );
+            })()}
           </DetailCard>
 
-          <PointsBadge>
-            Available Points <span>{player.statPoints}</span>
-          </PointsBadge>
+          <SectionTitle style={{ marginTop: '10px' }}>
+            {'Skill Bonuses'}
+          </SectionTitle>
+          <DetailCard>
+            {(() => {
+              const statBreakdown = calculateStatBreakdown(player);
+
+              return (
+                <>
+                  <DetailRow>
+                    <DetailLabel>{'Crit Damage'}</DetailLabel>
+                    <DetailValue>
+                      {statBreakdown.critDamage.current}%
+                      {statBreakdown.critDamage.current >
+                        statBreakdown.critDamage.base && (
+                        <span
+                          style={{
+                            color: '#4af',
+                            fontSize: '0.8rem',
+                            marginLeft: '6px',
+                          }}
+                        >
+                          (+
+                          {statBreakdown.critDamage.current -
+                            statBreakdown.critDamage.base}
+                          %)
+                        </span>
+                      )}
+                    </DetailValue>
+                  </DetailRow>
+                  <DetailRow>
+                    <DetailLabel>{'Attack Speed'}</DetailLabel>
+                    <DetailValue>
+                      {statBreakdown.attackSpeed.current > 0
+                        ? `+${statBreakdown.attackSpeed.current}%`
+                        : '0%'}
+                    </DetailValue>
+                  </DetailRow>
+                  <DetailRow>
+                    <DetailLabel>{'HP Regen'}</DetailLabel>
+                    <DetailValue>
+                      {statBreakdown.hpRegen.current > 0
+                        ? `+${statBreakdown.hpRegen.current} HP/s`
+                        : '0 HP/s'}
+                    </DetailValue>
+                  </DetailRow>
+                  <DetailRow>
+                    <DetailLabel>{'EXP Bonus'}</DetailLabel>
+                    <DetailValue>
+                      {statBreakdown.expBonus.current > 0
+                        ? `+${statBreakdown.expBonus.current}%`
+                        : '0%'}
+                    </DetailValue>
+                  </DetailRow>
+                  <DetailRow>
+                    <DetailLabel>{'Drop Rate'}</DetailLabel>
+                    <DetailValue>
+                      {statBreakdown.dropRate.current > 0
+                        ? `+${statBreakdown.dropRate.current}%`
+                        : '0%'}
+                    </DetailValue>
+                  </DetailRow>
+                  <DetailRow>
+                    <DetailLabel>{'Gold Bonus'}</DetailLabel>
+                    <DetailValue>
+                      {statBreakdown.goldBonus.current > 0
+                        ? `+${statBreakdown.goldBonus.current}%`
+                        : '0%'}
+                    </DetailValue>
+                  </DetailRow>
+                </>
+              );
+            })()}
+          </DetailCard>
+        </Section>
+
+        <Section>
+          <SectionTitle>{'Equipped Items'}</SectionTitle>
+          <EquippedCard>
+            <EquipSlot>
+              <EquipIconWrapper>
+                {player.equipment.weapon ? (
+                  <EquipIcon
+                    src={player.equipment.weapon.icon}
+                    $rarity="gold"
+                  />
+                ) : (
+                  <EmptyIcon />
+                )}
+                {player.equipment.weapon?.enhanceLevel ? (
+                  <EquipEnhance>
+                    +{player.equipment.weapon.enhanceLevel}
+                  </EquipEnhance>
+                ) : null}
+              </EquipIconWrapper>
+              <EquipInfo>
+                <EquipLabel>{'Main Weapon'}</EquipLabel>
+                <EquipName $active={!!player.equipment.weapon}>
+                  {player.equipment.weapon
+                    ? player.equipment.weapon.name
+                    : 'No Weapon equipped'}
+                </EquipName>
+                {player.equipment.weapon && (
+                  <UnequipButton onClick={() => onUnequip('Weapon')}>
+                    {'Unequip'}
+                  </UnequipButton>
+                )}
+              </EquipInfo>
+            </EquipSlot>
+
+            <EquipSlot>
+              <EquipIconWrapper>
+                {player.equipment.helmet ? (
+                  <EquipIcon
+                    src={player.equipment.helmet.icon}
+                    $rarity="#ff6b6b"
+                  />
+                ) : (
+                  <EmptyIcon />
+                )}
+                {player.equipment.helmet?.enhanceLevel ? (
+                  <EquipEnhance>
+                    +{player.equipment.helmet.enhanceLevel}
+                  </EquipEnhance>
+                ) : null}
+              </EquipIconWrapper>
+              <EquipInfo>
+                <EquipLabel>{'Helmet'}</EquipLabel>
+                <EquipName $active={!!player.equipment.helmet}>
+                  {player.equipment.helmet
+                    ? player.equipment.helmet.name
+                    : 'No Helmet equipped'}
+                </EquipName>
+                {player.equipment.helmet && (
+                  <UnequipButton onClick={() => onUnequip('Helmet')}>
+                    {'Unequip'}
+                  </UnequipButton>
+                )}
+              </EquipInfo>
+            </EquipSlot>
+
+            <EquipSlot>
+              <EquipIconWrapper>
+                {player.equipment.armor ? (
+                  <EquipIcon
+                    src={player.equipment.armor.icon}
+                    $rarity="#00ced1"
+                  />
+                ) : (
+                  <EmptyIcon />
+                )}
+                {player.equipment.armor?.enhanceLevel ? (
+                  <EquipEnhance>
+                    +{player.equipment.armor.enhanceLevel}
+                  </EquipEnhance>
+                ) : null}
+              </EquipIconWrapper>
+              <EquipInfo>
+                <EquipLabel>{'Armor'}</EquipLabel>
+                <EquipName $active={!!player.equipment.armor}>
+                  {player.equipment.armor
+                    ? player.equipment.armor.name
+                    : 'No Armor equipped'}
+                </EquipName>
+                {player.equipment.armor && (
+                  <UnequipButton onClick={() => onUnequip('Armor')}>
+                    {'Unequip'}
+                  </UnequipButton>
+                )}
+              </EquipInfo>
+            </EquipSlot>
+          </EquippedCard>
         </Section>
       </ContentLayout>
 
@@ -409,20 +736,24 @@ const StatusWindow: React.FC<StatusWindowProps> = ({
         <DescriptionArea>
           {hoveredStat
             ? statDescriptions[hoveredStat]
-            : '상세 설명을 보려면 스탯에 마우스를 올리세요.'}
+            : 'Hover over a stat to see details'}
         </DescriptionArea>
 
         <ActionButtons>
           <ResetButton
             onClick={() => {
-              if (window.confirm('정말 모든 스탯을 초기화하시겠습니까?')) {
+              if (
+                window.confirm(
+                  'Are you sure you want to reset all stat points?',
+                )
+              ) {
                 onReset();
               }
             }}
           >
-            Reset Stats
+            {'Reset Stats'}
           </ResetButton>
-          <CloseButton onClick={onClose}>Close</CloseButton>
+          <CloseButton onClick={onClose}>{'Close'}</CloseButton>
         </ActionButtons>
       </Footer>
     </WindowOverlay>

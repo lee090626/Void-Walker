@@ -13,13 +13,13 @@ const QuickBarContainer = styled.div`
   pointer-events: auto;
 `;
 
-const QuickSlot = styled.div<{ active: boolean }>`
+const QuickSlot = styled.div<{ $active: boolean }>`
   width: 70px;
   height: 70px;
   background: rgba(0, 0, 0, 0.6);
   border: 2px solid
     ${(props) =>
-      props.active ? 'var(--primary-color)' : 'rgba(255, 255, 255, 0.2)'};
+      props.$active ? 'var(--primary-color)' : 'rgba(255, 255, 255, 0.2)'};
   border-radius: 8px;
   display: flex;
   justify-content: center;
@@ -30,7 +30,7 @@ const QuickSlot = styled.div<{ active: boolean }>`
   transition: all 0.2s;
 
   ${(props) =>
-    props.active &&
+    props.$active &&
     `
     box-shadow: 0 0 15px var(--primary-color);
   `}
@@ -59,15 +59,16 @@ const Quantity = styled.div`
 `;
 
 const ItemIcon = styled.div<{
-  icon?: string;
-  color: string;
-  size?: { x: number; y: number };
+  $icon?: string;
+  $color: string;
+  $size?: { x: number; y: number };
 }>`
-  width: ${(props) => (props.size ? `${props.size.x}px` : '44px')};
-  height: ${(props) => (props.size ? `${props.size.y}px` : '44px')};
+  width: ${(props) => (props.$size ? `${props.$size.x}px` : '44px')};
+  height: ${(props) => (props.$size ? `${props.$size.y}px` : '44px')};
   max-width: 100%;
   max-height: 100%;
-  background: ${(props) => (props.icon ? `url(${props.icon})` : props.color)};
+  background: ${(props) =>
+    props.$icon ? `url(${props.$icon})` : props.$color};
   background-size: contain;
   background-position: center;
   background-repeat: no-repeat;
@@ -103,16 +104,16 @@ const QuickBar: React.FC<QuickBarProps> = ({
         return (
           <QuickSlot
             key={index}
-            active={!!itemId}
+            $active={!!itemId}
             onClick={() => onClick(index)}
           >
             <KeyBind>{index + 1}</KeyBind>
             {itemId && itemData ? (
               <>
                 <ItemIcon
-                  icon={itemData.icon}
-                  size={itemData.quickBarSize || itemData.size}
-                  color={
+                  $icon={itemData.icon}
+                  $size={itemData.quickBarSize || itemData.size}
+                  $color={
                     itemData.id === 'red_potion'
                       ? '#ff4b2b'
                       : itemData.id === 'blue_potion'
